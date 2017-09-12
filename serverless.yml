@@ -1,0 +1,168 @@
+
+
+service: escamed # NOTE: update this with your service type
+
+provider:
+  name: aws
+  runtime: python2.7
+  region: eu-central-1
+  memorysize: 128
+  stage: mac
+  timeout: 6
+  environment:
+    SQL_HOST: main.cxh7i7jlsgbr.eu-central-1.rds.amazonaws.com
+    SQL_USER: engelstrompete
+    SQL_PW: escagang69
+
+
+#  vpc:
+#      securityGroupIds:
+#        - sg-9b4835f0
+#      subnetIds:
+#        - subnet-2feceb65
+
+
+  iamRoleStatements: # IAM role statements so that services can be accessed in the AWS account
+    - Effect: 'Allow'
+      Action:
+        - "dynamodb:*"
+      Resource:
+        - "arn:aws:dynamodb:eu-central-1:531284228182:table/*"
+    - Effect: 'Allow'
+      Action:
+        - "ec2:DescribeNetworkInterfaces"
+        - "ec2:CreateNetworkInterface"
+        - "ec2:DeleteNetworkInterface"
+        - "ec2:DetachNetworkInterface"
+      Resource:
+        - "*"
+    - Effect: 'Allow'
+      Action:
+        - "lambda:*"
+      Resource:
+        - "arn:aws:lambda:eu-central-1:531284228182:function:*"
+    - Effect: 'Allow'
+      Action:
+        - "cognito-sync:*"
+      Resource:
+        - "*"
+    - Effect: 'Allow'
+      Action:
+        - "cognito-identity:*"
+      Resource:
+        - "*"
+    - Effect: Allow
+      Action:
+        - "execute-api:Invoke"
+      Resource: "arn:aws:execute-api:us-central-1:*:*"
+
+
+package:
+  exclude:
+    - pulp/solverdir/cbc/win/**
+    - pulp/solverdir/cbc/osx/**
+
+functions:
+  generate:
+    handler: handlers.generate
+    description: main function to generate for a
+    memorySize: 1536
+    timeout: 30
+    environemnt: cat
+    events:
+      - http:
+          path: handler.generate
+          method: POST
+          integration: lambda
+
+  regenerate:
+    handler: handlers.regenerate
+    description: regenerates a category
+    memorysize: 512
+    timeout: 30
+    events:
+      - http:
+          path: regenerate.regenerate_cat
+          method: POST
+          integration: lambda
+#          authorizer:
+#            type: aws_iam
+
+  generate_for_next_week:
+    handler: handlers.generate_for_next_week
+    description: checks DDB for active users and generates for upcoming week. Is invoked by CloudWatch Events
+    events:
+      - schedule:
+          rate: cron(0 10 ? * FRI *)
+          enabled: false
+
+
+  post_plan:
+    handler: handlers.post_plan
+    description: function to post a self-created plan
+    events:
+      - http:
+          path: ownplan.post_plan
+          method: POST
+          integration: lambda
+#          authorizer:
+#            type: aws_iam
+#          authorizer:
+#            arn: arn:aws:cognito-identity:eu-central-1:531284228182:identitypool/eu-central-1:2958e585-ef38-463e-aed4-ba59a0857566
+
+
+  scan_bls:
+    handler: handlers.scan_bls
+    description: scan BLS
+    events:
+      - http:
+          path: ownplan.scan_bls
+          method: POST
+          integration: lambda
+#          authorizer:
+#            type: aws_iam
+#          authorizer:
+#            arn: arn:aws:cognito-identity:eu-central-1:531284228182:identitypool/eu-central-1:2958e585-ef38-463e-aed4-ba59a0857566
+
+
+  reset_all_user_nutrients:
+    handler: handlers.reset_all_user_nutrients
+    memorySize: 128
+    description: deletes all userNutrition datasets for all users every night at XXX o'clock
+    events:
+      - schedule:
+          rate: cron(0 0 * * ? *)
+          enabled: true
+
+#  test_ddb_stream:
+#    handler: catchstream.test_ddb_stream
+#    description: detects new user sign up and invokes generate
+#    memorySize: 128
+#    events:
+#      - stream:
+#          type: dynamodb
+#          arn: arn:aws:dynamodb:eu-central-1:531284228182:table/UserDataTable/stream/2017-08-19T17:55:32.810
+
+  invoke_generate_from_mobile_device:
+    handler: handlers.invoke_generate_from_mobile_device
+    description: invokes generate, used after sign up and in case no plan
+    memorySize: 128
+    events:
+      - http:
+          path: invoke_generate_from_mobile_device
+          method: POST
+          integration: lambda
+#          authorizer:
+#            type: aws_iam
+#          authorizer:
+#            arn: arn:aws:cognito-identity:eu-central-1:531284228182:identitypool/eu-central-1:2958e585-ef38-463e-aed4-ba59a0857566
+
+  test_env:
+    handler: handlers.print_env_var
+    events:
+      - http:
+          path: print_env_var
+          method: POST
+
+
+
