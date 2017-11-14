@@ -1,13 +1,13 @@
 
 
-service: escamed # NOTE: update this with your service type
+service: escamedmobileapi # NOTE: update this with your service type
 
 provider:
   name: aws
   runtime: python2.7
   region: eu-central-1
   memorysize: 128
-  stage: mac
+  stage: expo
   timeout: 6
   environment:
     SQL_HOST: main.cxh7i7jlsgbr.eu-central-1.rds.amazonaws.com
@@ -67,11 +67,11 @@ functions:
     handler: handlers.generate
     description: main function to generate for a
     memorySize: 1536
-    timeout: 30
+    timeout: 300
     environemnt: cat
     events:
       - http:
-          path: handler.generate
+          path: generate
           method: POST
           integration: lambda
 
@@ -82,11 +82,12 @@ functions:
     timeout: 30
     events:
       - http:
-          path: regenerate.regenerate_cat
+          path: regenerate
           method: POST
           integration: lambda
-#          authorizer:
-#            type: aws_iam
+          authorizer:
+            type: aws_iam
+          cors: true
 
   generate_for_next_week:
     handler: handlers.generate_for_next_week
@@ -102,27 +103,25 @@ functions:
     description: function to post a self-created plan
     events:
       - http:
-          path: ownplan.post_plan
+          path: post_plan
           method: POST
           integration: lambda
-#          authorizer:
-#            type: aws_iam
-#          authorizer:
-#            arn: arn:aws:cognito-identity:eu-central-1:531284228182:identitypool/eu-central-1:2958e585-ef38-463e-aed4-ba59a0857566
+          authorizer:
+            type: aws_iam
+          cors: true
 
 
   scan_bls:
-    handler: handlers.scan_bls
+    handler: mobileapi.scan_bls
     description: scan BLS
     events:
       - http:
-          path: ownplan.scan_bls
+          path: scan_bls
           method: POST
           integration: lambda
-#          authorizer:
-#            type: aws_iam
-#          authorizer:
-#            arn: arn:aws:cognito-identity:eu-central-1:531284228182:identitypool/eu-central-1:2958e585-ef38-463e-aed4-ba59a0857566
+          authorizer:
+            type: aws_iam
+          cors: true
 
 
   reset_all_user_nutrients:
@@ -147,22 +146,165 @@ functions:
     handler: handlers.invoke_generate_from_mobile_device
     description: invokes generate, used after sign up and in case no plan
     memorySize: 128
+    timeout: 300
     events:
       - http:
           path: invoke_generate_from_mobile_device
           method: POST
           integration: lambda
-#          authorizer:
-#            type: aws_iam
-#          authorizer:
-#            arn: arn:aws:cognito-identity:eu-central-1:531284228182:identitypool/eu-central-1:2958e585-ef38-463e-aed4-ba59a0857566
+          authorizer:
+            type: aws_iam
 
-  test_env:
-    handler: handlers.print_env_var
+  nutrients:
+    handler: mobileapi.nutrients
     events:
       - http:
-          path: print_env_var
+          path: get/nutrients
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+
+  allergies:
+    handler: mobileapi.allergies
+    events:
+      - http:
+          path: get/allergies
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  habits:
+    handler: mobileapi.habits
+    events:
+      - http:
+          path: get/habits
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+
+  intolerances:
+    handler: mobileapi.intolerances
+    events:
+      - http:
+          path: get/intolerances
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+
+  container_categories:
+    handler: mobileapi.container_categories
+    events:
+      - http:
+          path: get/container_categories
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  input_range:
+    handler: mobileapi.input_range
+    events:
+      - http:
+          path: get/input_range
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  daily_top:
+    handler: mobileapi.daily_top
+    events:
+      - http:
+          path: get/daily_top
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  home_slides:
+    handler: mobileapi.home_slides
+    events:
+      - http:
+          path: get/home_slides
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  blood_pressure:
+    handler: mobileapi.blood_pressure_for_week
+    events:
+      - http:
+          path: blood_pressure
           method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
 
+  blood_pressure_input_check:
+    handler: mobileapi.blood_pressure_input_check
+    events:
+      - http:
+          path: blood_pressure_input_check
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
 
+  weight:
+    handler: mobileapi.blood_pressurweighte_for_week
+    events:
+      - http:
+          path: weight
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  grocery:
+    handler: mobileapi.grocery_url
+    events:
+      - http:
+          path: post/grocery
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  create_shopping_list:
+    handler: mobileapi.create_shopping_list
+    events:
+      - http:
+          path: shopping_list/create
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  shopping_list:
+    handler: mobileapi.shopping_list
+    events:
+      - http:
+          path: shopping_list/get
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+   check_item:
+    handler: mobileapi.check_item
+    events:
+      - http:
+          path: shopping_list/check_item
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
 

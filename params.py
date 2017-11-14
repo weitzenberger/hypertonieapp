@@ -125,14 +125,14 @@ age_bound2 = 51
 age_bound3 = 65
 
 # micro nutrtition
-bounds = {'EARG':   {C.LB: 5000,    C.UB: None},
-          'MK':     {C.LB: 3519,    C.UB: 4692},
-          'MNA':    {C.LB: 1600,    C.UB: 2400},
-          'MMG':    {C.LB: 300,     C.UB: None},
-          'MCA':    {C.LB: 1200,    C.UB: None},
-          'VC':     {C.LB: 500e03,  C.UB: 1e06},
-          'VD':     {C.LB: 20.00,   C.UB: None},
-          'ZB':     {C.LB: 30e3,    C.UB: None}}
+bounds = {'EARG':   {C.LB: 5000,    C.UB: None, 'UNIT': u'mg'},
+          'MK':     {C.LB: 3500,    C.UB: None, 'UNIT': u'mg'},
+          'MNA':    {C.LB: 1600,    C.UB: 2400, 'UNIT': u'mg'},
+          'MMG':    {C.LB: 300,     C.UB: None, 'UNIT': u'mg'},
+          'MCA':    {C.LB: 1200,    C.UB: None, 'UNIT': u'mg'},
+          'VC':     {C.LB: 500e03,  C.UB: 1e06, 'UNIT': u'mg'},
+          'VD':     {C.LB: 20.00,   C.UB: None, 'UNIT': u'µg'},
+          'ZB':     {C.LB: 30e3,    C.UB: None, 'UNIT': u'mg'}}
 
 # fats
 f_sat_ub = 0.1  # 8-10%
@@ -149,8 +149,8 @@ split = {'BF': 0.25,
          'WM': 0.25,
          'PL': 0.25}
 
-bfLbZf = 6000 #breakfast lower bound ZF
-bfLbZe = 10000 #breakfast lower bound ZE
+bfLbZf = 6000  # breakfast lower bound ZF
+bfLbZe = 10000  # breakfast lower bound ZE
 
 crit_nut = {'ZK': 40, 'ZB': 2000, 'ZF': 20000, 'FU': 10000, 'ZE': 17000, 'EARG': 800,
             'MK': 300, 'MNA': 120, 'MMG': 30, 'VC': 25000, 'VE': 1000}
@@ -166,7 +166,12 @@ nutrientset = ['SBLS', 'GCAL', 'ZK', 'ZB', 'ZF', 'FS', 'FU', 'FP', 'FO6', 'FO3',
 #nutrientList = ['GCAL', 'ZK', 'ZB', 'ZF', 'FS', 'FU', 'FP', 'FO6', 'FO3', 'ZE', 'EARG',
 #                'MK', 'MNA', 'MMG', 'MCA', 'VC', 'VD', 'VE']
 
-nutrientsMacroList = ['GCAL', 'ZF', 'ZE', 'F182', 'F183']
+nutrientsMacroList = ['GCAL',
+                      'ZF',
+                      'ZE',
+                      'F182',
+                      'F183',
+                      'ZK']
 
 nutrientsMicroList = ['EARG',
                       'MMG',
@@ -189,7 +194,7 @@ nutrientsMicroList = ['EARG',
                       'VB1',
                       'VB12',
                       'VB2',
-                     # 'VB3A',
+                      #'VB3A',
                       'VB5',
                       'VB6',
                       'VB7',
@@ -198,7 +203,111 @@ nutrientsMicroList = ['EARG',
                       ]
 nutrientList = nutrientsMacroList + nutrientsMicroList
 
+
+BLS2gramm = { 'GCAL': 1,
+              'ZF': 1e-3,
+              'ZE': 1e-3,
+              'F182': 1e-3,
+              'F183': 1e-3,
+              'ZK': 1e-3,
+              'EARG': 1e-3,
+              'MMG': 1e-3,
+              'VC': 1e-6,
+              'VD': 1e-6,
+              'VE': 1e-6,
+              'ZB': 1e-3,
+              'MCA': 1e-3,
+              'MCL': 1e-3,
+              'MCU': 1e-6,
+              'MF': 1e-6,
+              'MFE': 1e-6,
+              'MJ': 1e-6,
+              'MK': 1e-3,
+              'MMN': 1e-6,
+              'MNA': 1e-3,
+              'MP': 1e-3,
+              'MZN': 1e-6,
+              'VA': 1e-6,
+              'VB1': 1e-6,
+              'VB12': 1e-6,
+              'VB2': 1e-6,
+              'VB3A': 1e-6,
+              'VB5': 1e-6,
+              'VB6': 1e-6,
+              'VB7': 1e-6,
+              'VB9G': 1e-6,
+              'VK': 1e-6}
+
+assignUnit = {
+                'GCAL': 1,
+               'ZF': 1,
+               'ZE': 1,
+               'F182': 1,
+               'F183': 1,
+               'ZK': 1,
+              'EARG': 1e3,
+              'MMG': 1e3,
+              'VC': 1e6,
+              'VD': 1e6,
+              'VE': 1e6,
+              'ZB': 1,
+              'MCA': 1e3,
+              'MCL': 1e3,
+              'MCU': 1e6,
+             # 'MF': ,
+              'MFE': 1e3,
+              'MJ': 1e6,
+              'MK': 1e3,
+              'MMN': 1e6,
+              'MNA': 1e3,
+              'MP': 1e3,
+              'MZN': 1e3,
+              'VA': 1e6,
+              'VB1': 1e6,
+              'VB12': 1e6,
+              'VB2': 1e6,
+             # 'VB3A': 1e6,
+              'VB5': 1e6,
+              'VB6': 1e6,
+              'VB7': 1e6,
+              'VB9G': 1e6,
+              'VK': 1e6}
+
+switch_unit = {1: u'g',
+               1e3: u'mg',
+               1e6: u'µm'}
+
+
+switch_unit_inv = {v: k for k, v in switch_unit.iteritems()}
+
+unit = {k: switch_unit[v] for (k, v) in assignUnit.iteritems()}
+
+unit['GCAL'] = u'kcal'
+
+
+
 crit_time = 10  # in days
+
+habits = ['VEGAN', 'VEGGIE']
+allergies = ['AL_EGG',
+             'AL_PEANUTS',
+             'AL_CRUSTACEAN',
+             'AL_CELERY',
+             'AL_SOY',
+             'AL_FISH',
+             'AL_SQUID',
+             'AL_NUTS',
+             'AL_MUSTARD',
+             'AL_SESAM'
+             ]
+
+intolerances = ['IN_GLUT',
+                'IN_LAKT']
+
+denutritionized = [
+    'DE_GLUT',
+    'DE_LAKT'
+]
 
 
 fieldnames = ['male19to25', 'male25to51', 'male51to65', 'male65plus', 'female19to25', 'female25to51', 'female51to65', 'female65plus']

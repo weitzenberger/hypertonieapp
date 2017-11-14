@@ -120,7 +120,7 @@ class Modeller(object):
         """
         self.model = model
         if not isinstance(days, collections.Iterable):
-            raise TypeError('days must be a list of iso8601 dates not ' + type(days))
+            raise TypeError('days must be a list/tuple of iso8601 dates not ' + type(days))
         self.days = days
         self.bounds = bounds
         self.nutrientMicroList = nutrientMicroList
@@ -134,6 +134,7 @@ class Modeller(object):
         self.crossSum = self._tree()
         self.crossCounter = self._tree()
         self.sumGlobal = {}
+        self.all_meals = self._tree()
 
     def _join(self, *names):
         """Joins names with underscores for constraint
@@ -196,51 +197,46 @@ class Modeller(object):
                         self.variable[day][cat][key] == self.offset[day][cat][key] + self.counter[day][cat][key]
                     self.model.addConstraint(offset_constraint)
 
-    def _set_generator(self, foods, cat):
-        """Sets all standard variables and constraints for meal generators. A meal generator can consider
-        different types of foods and set constraints for each type, such as number of included foods.
-        NOTE: Does not work for salad mixer.
-
-        :param foods: foods that come from Database (SQL Server)
-        :param cat: cat in ['SM', 'SW', ....]
-        """
-        self._set_variables(foods=foods, cat=cat)
-        self._set_counter(foods=foods, cat=cat)
-        self._set_offset(foods=foods, cat=cat)
-
-    def _set_local_and_global_sum(self, foods, needs, cat,
-                                  add_meal=None, local_nut=None, is_meal=False):
+    def _set_local_and_global_sum_for_container(self, container_content, needs, container_key,
+                                                add_meal=None, local_nut=None):
         """Sets local sum for 'local_nut' and adds it to the model. Also sets sum
         for all nutrients for global sum, but does not add it to the model yet
 
-        :param foods: dict of foods come from Database (SQL Server)
+        :param container_content: dict of foods come from Database (SQL Server)
         :param needs: dict of needs come from PatientClass
-        :param cat: cat in ['SM', 'SW', ...]
+        :param container_key: cat in ['SM', 'SW', ...]
         :param add_meal: dict of constants for each nutrition that is added to the constraints
                          comes from user data from DDB.
         :param local_nut: nutrition that is to be considered for local constraint
         :param is_meal: boolean, is True when recipe
         """
+        self.all_meals[container_key] = {}
+        local_nut = 'GCAL'
+
+        for item in container_content:
+            self.all_meals[container_key].update(item['meals'])
 
         for day in self.days:
             for n in self.nutrientList:
-                sum_local = None
-                current_sum = \
-                    [value[n] * self.variable[day][cat][key] * (1 if is_meal else value[c.LB] * 0.01)
-                     for key, value in foods.iteritems()]
+                current_sum_for_nutrient = []
+                for meal_key, variable in self.variable[day][container_key].iteritems():
+                    sum_local = None
+                    current_sum_for_nutrient.append(self.all_meals[container_key][meal_key][n] * variable)
                 if n == local_nut:
-                    sum_local = current_sum + (add_meal[n] if add_meal else [])
-                self.sumGlobal.setdefault(day, {}).setdefault(n, []).append(current_sum)
+                    sum_local = current_sum_for_nutrient + (add_meal[n] if add_meal else [])
+
+                self.sumGlobal.setdefault(day, {}).setdefault(n, []).append(current_sum_for_nutrient)
 
                 if sum_local:
-                    constraint = StandardConstraint(
-                        name=self._join(day, cat, local_nut),
-                        sum=sum_local,
-                        ub=needs[cat][local_nut][c.UB],
-                        lb=needs[cat][local_nut][c.LB]
-                    )
+                    if needs.get(container_key):
+                        constraint = StandardConstraint(
+                            name=self._join(day, container_key, local_nut),
+                            sum=sum_local,
+                            ub=needs[container_key][local_nut][c.UB],
+                            lb=needs[container_key][local_nut][c.LB]
+                        )
 
-                    constraint.add_to_model(model=self.model)
+                        constraint.add_to_model(model=self.model)
 
     def set_global(self, needs, add_day=None, add_week=None):
         """Sets the constraints for all nutrients for the whole week. This function is to be
@@ -309,7 +305,7 @@ class Modeller(object):
                 cat=pulp.LpBinary
             )
             counter_constraint1 = \
-                self.crossCounter[key] * 100000000.0 >= pulp.m(self.crossSum[key])
+                self.crossCounter[key] * 100000000.0 >= pulp.lpSum(self.crossSum[key])
             counter_constraint2 = \
                 self.crossCounter[key] <= pulp.lpSum(self.crossSum[key])
 
@@ -324,296 +320,49 @@ class Modeller(object):
         )
         cross_counter_constraint.add_to_model(model=self.model)
 
-    def set_breakfast(self, meals, needs, add_meal=None):
-        """Breakfast consists of meals"""
-        cat = 'BF'
+    def set_meals(self, meals, needs, add_meal=None):
+
+        week_list = []
         for day in self.days:
-            for k in meals.keys():
-                self.variable[day][cat][k] = pulp.LpVariable(
-                    name=self._join(day, cat, k),
-                    cat=pulp.LpBinary
-                )
+            meal_list_day = []
+            for container_key, container_content in meals.iteritems():
+                meal_list_oblig = []
+                for item in container_content:
+                    for k in item['meals'].keys():
+                        if not self.variable[day][container_key].get(k):
+                            current_variable = pulp.LpVariable(
+                                name=self._join(day, container_key, k),
+                                cat=pulp.LpBinary
+                            )
+                            self.variable[day][container_key][k] = current_variable
 
-        self._set_local_and_global_sum(
-            foods=meals,
-            needs=needs,
-            cat=cat,
-            add_meal=add_meal,
-            local_nut='GCAL',
-            is_meal=True
-        )
 
-    def set_meal_the_other_way(self, meals, needs, add_meal=None):
-        """Salad consists of mixed green salads according to the flavour bible"""
-        cat = 'SA'
-        for day in self.days:
-            dayList = []
-            for meal_key, meal_ingredients in meals.iteritems():
-                previous_variable = None
-                ls_ingredients = []
-                meal_counter = pulp.LpVariable(
-                    name=self._join(day, cat, 'MEAL', 'COUNTER', meal_key),
-                    cat=pulp.LpBinary
-                )
-                for ingredient, values in meal_ingredients.iteritems():
-                    current_variable = pulp.LpVariable(
-                        name=self._join(day, cat, meal_key, k),
-                        cat=pulp.LpBinary
-                    )
+                    if item['preference'] == 'obligatory':
+                        sum1 = [self.variable[day][container_key][k] for k in item['meals'].keys()]
 
-                    self.variable[day][cat][meal_key][k] = current_variable * values['AMOUNT'] / 100.0
+                        constraint_day = StandardConstraint(
+                            name=self._join(day, container_key, 'OBLIGATORY'),
+                            sum=sum1,
+                            lb=1
+                        )
+                        constraint_day.add_to_model(model=self.model)
 
-                    if previous_variable:
-                        equality_constraint = \
-                            previous_variable == current_variable
+        switch_nut = {'BF': 'GCAL',
+                      'DI': 'GCAL',
+                      'LU': 'GCAL',
+                      'SN': None}
 
-                        self.model.addConstraint(equality_constraint)
-
-                    ls_ingredients.append(current_variable)
-
-                    previous_variable = current_variable
-
-                counter_constraint1 = pulp.lpSum(ls_ingredients) * 1e-08 <= meal_counter
-                counter_constraint2 = pulp.lpSum(ls_ingredients) >= meal_counter
-                self.model.addConstraint(counter_constraint1)
-                self.model.addConstraint(counter_constraint2)
-
-                dayList.append(meal_counter)
-
-                for n in self.nutrientList:
-                    sum = [v[n] * self.variable[day][cat][meal_key][k] * v['AMOUNT'] * 0.01 for k, v in meal_ingredients.iteritems()]
-                    self.sumGlobal.setdefault(day, {}).setdefault(n, []).append(sum)
-
-            self.model.addConstraint(pulp.lpSum(dayList) == 1)
-
-    def set_warm_meal(self, meals, needs, add_meal=None):
-        """Warm meal consists of one single meal"""
-        cat = 'WM'
-        for day in self.days:
-            for k in meals.keys():
-                self.variable[day][cat][k] = pulp.LpVariable(name=self._join(day, cat, k), cat=pulp.LpBinary)
-
-            sum1 = [self.variable[day][cat][k] for k in meals.keys()]
-
-            constraint_day = StandardConstraint(
-                name=self._join(day, cat, 'SUM'),
-                sum=sum1,
-                eq=1
+        for container_key in meals.keys():
+            self._set_local_and_global_sum_for_container(
+                container_content=meals[container_key],
+                needs=needs,
+                container_key=container_key,
+                add_meal=add_meal,
+                local_nut=switch_nut[container_key]
             )
 
-            constraint_day.add_to_model(model=self.model)
-
-        self._set_local_and_global_sum(
-            foods=meals,
-            needs=needs,
-            cat=cat,
-            add_meal=add_meal,
-            local_nut='GCAL',
-            is_meal=True
-        )
-
-        # constraintWeek = StandardConstraint('TOT' + '_WM_' + 'GCAL', sum=sumWeek, ub=3)
-        # constraintWeek.add_to_model(model=self.model)
-
-    def set_salad(self, foods):
-        """Salad consists of mixed green salads according to the flavour bible"""
-        cat = 'SA'
-        for day in self.days:
-            dayList = []
-            for gskey, val in foods.iteritems():
-                previousCounter = None
-                for k in val.iterkeys():
-                    current_variable = pulp.LpVariable(
-                        name=self._join(day, cat, gskey, k),
-                        lowBound=0,
-                        upBound=val[k][c.UB] / val[k][c.LB],
-                        cat=pulp.LpInteger if val[k][c.INT] else pulp.LpContinuous
-                    )
-                    current_counter = pulp.LpVariable(name=day + '_COUNTER_SA_' + gskey + '_' + k, cat=pulp.LpBinary)
-                    current_offsetter = pulp.LpVariable(
-                        name=day + '_OFFSET_SA_' + gskey + '_' + k,
-                        lowBound=0,
-                        upBound=val[k][c.UB] / val[k][c.LB] - 1,
-                        cat=pulp.LpInteger if val[k][c.INT] else pulp.LpContinuous
-                    )
-
-                    self.variable[day][cat][gskey][k] = current_variable
-                    self.counter[day][cat][gskey][k] = current_counter
-                    self.offset[day][cat][gskey][k] = current_offsetter
-
-                    helperConstraint = \
-                        current_counter + current_offsetter == current_variable
-                    counterConstraint = \
-                        current_counter >= current_offsetter / val[k][c.UB]
-
-                    self.model.addConstraint(helperConstraint)
-                    self.model.addConstraint(counterConstraint)
-
-                    if previousCounter:
-                        equalityConstraint = \
-                            current_counter == previousCounter
-
-                        self.model.addConstraint(equalityConstraint)
-
-                    previousCounter = current_counter
-
-                dayList.append(current_counter)
-
-                for n in self.nutrientList:
-                    sum = [v[n] * self.variable[day][cat][gskey][k] * v[c.LB] * 0.01 for k, v in val.iteritems()]
-                    self.sumGlobal.setdefault(day, {}).setdefault(n, []).append(sum)
-
-            self.model.addConstraint(pulp.lpSum(dayList) == 1)
-            # constraint = StandardConstraint(day + '_SA_' + nut, sum=sumLocal, ub=True, lb=True, eq=needs['CM']['GCAL'])
-            # constraint.add_to_model(model=self.model)
-
-    def set_snacks(self, foods):
-        """Snacks are like small meals and
-        """
-
-        cat = 'SN'
-
-        for day in self.days:
-            for k in foods.keys():
-                self.variable[day][cat][k] = pulp.LpVariable(name=self._join(day, cat, k), cat=pulp.LpBinary)
-
-        self._set_local_and_global_sum(
-            foods=foods,
-            needs=None,
-            cat=cat,
-            add_meal=None,
-            local_nut=None,
-            is_meal=True
-        )
-
-    def set_plate(self, foods, needs, add_meal=None):
-        """Plate Generator
-        1 type of meat
-        1-2 types of vegetables
-        1 type of grain
-        """
-
-        cat = 'PL'
-        self._set_generator(foods=foods, cat=cat)
-
-        for day in self.days:
-            sum1 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['MEAT']]
-            sum2 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['VEGETABLES']]
-            sum3 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['WHOLE_GRAIN']]
-
-            const_local1 = StandardConstraint(
-                name=day + '_PL_MEAT',
-                sum=sum1,
-                eq=1
-            )
-            const_local2 = StandardConstraint(
-                name=day + '_PL_VEG',
-                sum=sum2,
-                lb=1,
-                ub=2
-            )
-            const_local3 = StandardConstraint(
-                name=day + '_PL_GRAIN',
-                sum=sum3,
-                eq=1
-            )
-
-            const_local1.add_to_model(model=self.model)
-            const_local2.add_to_model(model=self.model)
-            const_local3.add_to_model(model=self.model)
-
-        self._set_local_and_global_sum(
-            foods=foods,
-            needs=needs,
-            cat=cat,
-            add_meal=add_meal,
-            local_nut='GCAL',
-            is_meal=False
-        )
-
-    def set_smoothie(self, foods):
-        """Smoothie Generator
-        1 Fluid
-        1 Primary
-        1-2 Secondary
-        1 Boost
-        """
-
-        cat = 'SM'
-        self._set_generator(foods=foods, cat=cat)
-
-        for day in self.days:
-            sum1 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['fluid']]
-            sum2 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['primary']]
-            sum3 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['secondary']]
-            sum4 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['boost']]
-
-            const_local1 = StandardConstraint(
-                name=day + '_SM_FLUID',
-                sum=sum1,
-                eq=1
-            )
-            const_local2 = StandardConstraint(
-                name=day + '_SM_PRIM',
-                sum=sum2,
-                eq=1
-            )
-            const_local3 = StandardConstraint(
-                name=day + '_SM_SEC',
-                sum=sum3,
-                lb=1,
-                ub=2
-            )
-            const_local4 = StandardConstraint(
-                name=day + '_SM_BOOST',
-                sum=sum4,
-                lb=0,
-                ub=1
-            )
-
-            const_local1.add_to_model(model=self.model)
-            const_local2.add_to_model(model=self.model)
-            const_local3.add_to_model(model=self.model)
-            const_local4.add_to_model(model=self.model)
-
-        self._set_local_and_global_sum(
-            foods=foods,
-            needs=None,
-            cat=cat,
-            add_meal=None,
-            local_nut=None,
-            is_meal=False
-        )
-
-    def set_sandwich(self, foods):
-        """Sandwich Generator
-        1 type of Bread
-        1 type of Butter
-        1-3 types of Toppings
-        """
-
-        cat = 'SW'
-        self._set_generator(foods=foods, cat=cat)
-
-        for day in self.days:
-            sum1 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['bread']]
-            sum2 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['butter']]
-            sum3 = [self.counter[day][cat][key] for key, val in foods.iteritems() if val['topping']]
-            sum4 = [-self.variable[day][cat][key] for key, val in foods.iteritems() if val['butter']]
-            sum5 = [self.variable[day][cat][key] for key, val in foods.iteritems() if val['bread']]
-
-            constLocal1 = StandardConstraint(self._join(day, cat, 'BREAD'), sum=sum1, eq=1)
-            constLocal2 = StandardConstraint(self._join(day, cat, 'BUTTER'), sum=sum2, eq=1)
-            constLocal3 = StandardConstraint(self._join(day, cat, 'TOP'), sum=sum3, lb=1, ub=3)
-            constLocal4 = StandardConstraint(self._join(day, cat, 'COMBI'), sum=sum4 + sum5, eq=0)
-
-            constLocal1.add_to_model(model=self.model)
-            constLocal2.add_to_model(model=self.model)
-            constLocal3.add_to_model(model=self.model)
-            constLocal4.add_to_model(model=self.model)
-
-        self._set_local_and_global_sum(foods=foods, needs=None, cat=cat,
-                                       add_meal=None, local_nut=None, is_meal=False)
+                        # constraintWeek = StandardConstraint('TOT' + '_WM_' + 'GCAL', sum=sumWeek, ub=3)
+                        # constraintWeek.add_to_model(model=self.model)
 
 
 class Evaluator(object):
@@ -633,106 +382,60 @@ class Evaluator(object):
                            'SA': 'DI',
                            'SM': 'SN',
                            'SN': 'SN'}
+        self.switchUnit = {nut: params.BLS2gramm[nut] * pot for nut, pot in params.assignUnit.iteritems()}
         self.nutrientsForMeal = self._tree()
         self.nutrientsForDay = self._tree()
         self.nutrientsForWeek = self._tree()
         self.nutrientsForContainer = self._tree()
         self.plan = self._tree()
+        self.shoppinglist = self._tree()
 
-    def evaluate_gen(self):
+
+    def evaluate_meals_for_container(self):
         for day, day_plan in self.variable.iteritems():
-            for cat, meal in day_plan.iteritems():
-                if cat in ['PL', 'SW', 'SM']:
-                    self.plan[day][self.assignMeal[cat]][cat]['DES'] = c.LOREM_IPSUM
-                    for key, var in meal.iteritems():
-                        if var.varValue != 0:
-                            current_key_element = self.meals[cat][key]
-                            current_portion = var.varValue * float(current_key_element[c.LB])
-                            self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['portion'] = current_portion
-                            self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['varValue'] = var.varValue
-                            self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['ST'] = self.meals[cat][key]['NAME']
+            for container_key, container_content in day_plan.iteritems():
+                for meal_key, variable in container_content.iteritems():
+                    if variable.varValue != 0:
+                        current_key_element = self.meals[container_key][meal_key]
+                        self.plan[day][container_key][meal_key]['ST'] = self.meals[container_key][meal_key]['NAME']
+                        self.plan[day][container_key][meal_key]['varValue'] = variable.varValue
+                        self.plan[day][container_key][meal_key]['ingredients'].update(self._dB.get_meal_vals(meal_key))
+
+                        for sbls_key, sbls_value in self.plan[day][container_key][meal_key]['ingredients'].iteritems():
+                            current_portion = sbls_value['portion']
+                            self.shoppinglist[sbls_key].setdefault('portion', 0.0)
+                            self.shoppinglist[sbls_key]['portion'] += current_portion
+                            self.shoppinglist['ingredients'] = sbls_value
 
                             for n in params.nutrientList:
-                                current_scaled_nutrient = current_key_element[n] * current_portion / 100.0
-                                self.plan[day][self.assignMeal[cat]][cat].setdefault(n, 0.0)
-                                self.plan[day][self.assignMeal[cat]][cat][n] += current_scaled_nutrient
-                                self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key][n] = current_scaled_nutrient
-
-    def evaluate_salad(self):
-        for day, dayplan in self.variable.iteritems():
-            for cat, meal in dayplan.iteritems():
-                if cat in ['SA']:
-                    self.plan[day][self.assignMeal[cat]][cat]['DES'] = c.LOREM_IPSUM
-
-                    for gskey, saladcombo in meal.iteritems():
-                        for key, var in saladcombo.iteritems():
-                            if var.varValue != 0:
-                                current_key = self.meals[cat][gskey][key]
-                                current_portion = var.varValue * float(current_key[c.LB])
-                                self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['portion'] = current_portion
-                                self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['varValue'] = var.varValue
-                                self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['ST'] = self.meals[cat][gskey][key]['NAME']
-
-                                for n in params.nutrientList:
-                                    current_scaled_nutrient = current_key[n] * current_portion / 100.0
-
-                                    self.plan[day][self.assignMeal[cat]][cat].setdefault(n, 0.0)
-                                    self.plan[day][self.assignMeal[cat]][cat][n] += current_scaled_nutrient
-                                    self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key][n] = current_scaled_nutrient
+                                sbls_value[n] *= current_portion / 100.0
 
 
-    def evaluate_meal_the_other_way(self):
-        for day, dayplan in self.variable.iteritems():
-            for cat, meal in dayplan.iteritems():
-                if cat in ['SN', 'WM', 'BF']:
-                    self.plan[day][self.assignMeal[cat]][cat]['DES'] = c.LOREM_IPSUM
-                    for meal_key, meal_content in meal.iteritems():
-                        for key, var in meal_content.iteritems():
-                            if var.varValue != 0:
-                                current_key = self.meals[cat][meal_key][key]
-                                current_portion = var.varValue * float(current_key[c.LB])
-                                self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['portion'] = current_portion
-                                self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['varValue'] = var.varValue
-                                self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key]['ST'] = self.meals[cat][meal_key][key]['NAME']
+                        for n in params.nutrientList:
+                            self.plan[day][container_key][meal_key][n]['UNIT'] = params.unit[n]
+                            self.plan[day][container_key][meal_key][n]['VAL'] = current_key_element[n] * self.switchUnit[n]
 
-                                for n in params.nutrientList:
-                                    current_scaled_nutrient = current_key[n] * current_portion / 100.0
-
-                                    self.plan[day][self.assignMeal[cat]][cat].setdefault(n, 0.0)
-                                    self.plan[day][self.assignMeal[cat]][cat][n] += current_scaled_nutrient
-                                    self.plan[day][self.assignMeal[cat]][cat]['ingredients'][key][n] = current_scaled_nutrient
-
-    def evaluate_meal(self):
-        for day, dayplan in self.variable.iteritems():
-            for cat, meal in dayplan.iteritems():
-                if cat in ['SN', 'WM', 'BF']:
-                    for key, var in meal.iteritems():
-                        if var.varValue != 0:
-                            current_key_element = self.meals[cat][key]
-
-                            self.plan[day][self.assignMeal[cat]][key]['ST'] = self.meals[cat][key]['NAME']
-                            self.plan[day][self.assignMeal[cat]][key]['varValue'] = var.varValue
-                            self.plan[day][self.assignMeal[cat]][key]['ingredients'].update(self._dB.get_meal_vals(key))
-
-                            for sbls_key, sbls_value in self.plan[day][self.assignMeal[cat]][key]['ingredients'].iteritems():
-                                current_portion = sbls_value['portion']
-                                for n in params.nutrientList:
-                                    sbls_value[n] *= current_portion / 100.0
-                            for n in params.nutrientList:
-                                self.plan[day][self.assignMeal[cat]][key].setdefault(n, 0.0)
-                                self.plan[day][self.assignMeal[cat]][key][n] += current_key_element[n] * var.varValue
     @form.time_it
-    def evaluat_for_container(self):
+    def evaluate_container(self):
         for day, dayplan in self.plan.iteritems():
-            for container, container_content in dayplan.iteritems():
-                for cat in container_content.iterkeys():
+            for container_key, container_content in dayplan.iteritems():
+                for meal_key in container_content.iterkeys():
                     for n in params.nutrientList:
-                        self.nutrientsForContainer[day][container].setdefault(n, 0.0)
-                        self.nutrientsForContainer[day][container][n] += self.plan[day][container][cat][n]
-                        self.nutrientsForDay[day].setdefault(n, 0.0)
-                        self.nutrientsForDay[day][n] += self.plan[day][container][cat][n]
-                        self.nutrientsForWeek[form.get_week_by_date(day)].setdefault(n, 0.0)
-                        self.nutrientsForWeek[form.get_week_by_date(day)][n] += self.plan[day][container][cat][n]
+                        self.nutrientsForContainer[day][container_key][n].setdefault('VAL', 0.0)
+                        self.nutrientsForContainer[day][container_key][n].setdefault('UNIT', params.unit[n])
+                        self.nutrientsForContainer[day][container_key][n]['VAL'] += self.plan[day][container_key][meal_key][n]['VAL']
+
+                        self.nutrientsForDay[day][n].setdefault('VAL', 0.0)
+                        self.nutrientsForDay[day][n].setdefault('UNIT', params.unit[n])
+                        self.nutrientsForDay[day][n]['VAL'] += self.plan[day][container_key][meal_key][n]['VAL']
+
+                        self.nutrientsForWeek[form.get_week_by_date(day)][n].setdefault('VAL', 0.0)
+                        self.nutrientsForWeek[form.get_week_by_date(day)][n].setdefault('UNIT', params.unit[n])
+                        self.nutrientsForWeek[form.get_week_by_date(day)][n]['VAL'] += self.plan[day][container_key][meal_key][n]['VAL']
+
+
+
+
 
 
 
@@ -749,88 +452,13 @@ class Evaluator(object):
                 'nutrientsForWeek': nutrientsForWeek,
                 'varsNotInPlan': varsNotInPlan,
                 'meals': self.meals
-
-
-        nutrientsForMeal = self._tree()
-        nutrientsForDay = self._tree()
-        nutrientsForWeek = self._tree()
-        plan = self._tree()
-
-        for day, dayplan in self.variable.iteritems():
-            for cat, meal in dayplan.iteritems():
-                if cat == 'SA':
-                    for gskey, saladcombo in meal.iteritems():
-                        for key, var in saladcombo.iteritems():
-                            if var.varValue != 0:
-                                currentKey = self.meals[cat][gskey][key]
-                                currentPortion = var.varValue * float(currentKey[c.LB])
-                                plan[day][self.assignMeal[cat]][cat][key]['portion'] = currentPortion
-                                plan[day][self.assignMeal[cat]][cat][key]['varValue'] = var.varValue
-                                plan[day][self.assignMeal[cat]][cat][key]['type'] = self.meals[cat][gskey][key]['NAME']
-
-                                for n in params.nutrientList:
-                                    plan[day][self.assignMeal[cat]][cat][key][n] = currentKey[n] * currentPortion / 100.0
-
-                                    nutrientsForMeal[day][cat].setdefault(n, 0.0)
-                                    nutrientsForMeal[day][cat][n] += plan[day][self.assignMeal[cat]][cat][key][n]
-
-                else:
-                    for key, var in meal.iteritems():
-                        if var.varValue != 0:
-                            currentKey = self.meals[cat][key]
-                            if cat in ['PL', 'SW', 'SM']:
-                                currentPortion = var.varValue * float(currentKey[c.LB])
-
-                                plan[day][self.assignMeal[cat]][cat][key]['portion'] = currentPortion
-                                plan[day][self.assignMeal[cat]][cat][key]['varValue'] = var.varValue
-                                plan[day][self.assignMeal[cat]][cat][key]['type'] = self.meals[cat][key]['NAME']
-                                for n in params.nutrientList:
-                                    current_scaled_ingredient = currentKey[n] * currentPortion / 100.0
-                                    plan[day][self.assignMeal[cat]][cat][key][n] = current_scaled_ingredient
-
-                                    nutrientsForMeal[day][cat].setdefault(n, 0.0)
-                                    nutrientsForMeal[day][cat][n] += current_scaled_ingredient
-                            else:
-                                plan[day][self.assignMeal[cat]][cat][key]['type'] = self.meals[cat][key]['NAME']
-                                plan[day][self.assignMeal[cat]][cat][key]['varValue'] = var.varValue
-                                plan[day][self.assignMeal[cat]][cat][key]['ingredients'].update(self._dB.get_meal_vals(key))
-
-                                for sbls_key, sbls_value in plan[day][self.assignMeal[cat]][cat][key]['ingredients'].iteritems():
-
-                                    current_portion = sbls_value['portion']
-                                    for n in params.nutrientList:
-                                        sbls_value[n] *= current_portion / 100.0
-                                for n in params.nutrientList:
-                                    plan[day][self.assignMeal[cat]][cat][key][n] = currentKey[n] * var.varValue
-
-                                    nutrientsForMeal[day][cat].setdefault(n, 0.0)
-                                    nutrientsForMeal[day][cat][n] += currentKey[n] * var.varValue
-
-        for day, dayplan in nutrientsForMeal.iteritems():
-            for mealKey in dayplan.iterkeys():
-                # nutrientsForDay
-                for n in params.nutrientList:
-                    nutrientsForDay[day].setdefault(n, 0.0)
-                    nutrientsForDay[day][n] += nutrientsForMeal[day][mealKey][n]
-            # nutrientsForWeek
-            for n in params.nutrientList:
-                nutrientsForWeek[format.get_week_by_date(day)].setdefault(n, 0.0)
-                nutrientsForWeek[format.get_week_by_date(day)][n] += nutrientsForDay[day][n]
-
-        Nutrients = collections.namedtuple('nutrients',
-                                           ['nutrientsForMeal', 'nutrientsForDay', 'nutrientsForWeek', 'plan'])
-
-        return Nutrients(
-            nutrientsForMeal=dict(nutrientsForMeal),
-            nutrientsForDay=dict(nutrientsForDay),
-            nutrientsForWeek=dict(nutrientsForWeek),
-            plan=dict(plan)
         )"""
 
-        self.evaluate_gen()
-        self.evaluate_salad()
-        self.evaluate_meal()
-        self.evaluat_for_container()
+        # self.evaluate_gen()
+        # self.evaluate_salad()
+        # self.evaluate_meal()
+        self.evaluate_meals_for_container()
+        self.evaluate_container()
 
         Nutrients = collections.namedtuple('nutrients',
                                            ['nutrientsForMeal', 'nutrientsForDay', 'nutrientsForWeek', 'plan'])

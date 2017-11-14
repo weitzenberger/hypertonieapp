@@ -61,8 +61,8 @@ class Patient(object):
 
         :return: float, age in years
         """
-        return (form.convert_iso_to_date_time(form.get_date_in_iso()) -
-                form.convert_iso_to_date_time(self.birthday)).days / 365.0
+        return (form.get_date_time_by_iso(form.get_date_in_iso()) -
+                form.get_date_time_by_iso(self.birthday)).days / 365.0
 
     @abc.abstractmethod
     def cal_bounds(self):
@@ -205,30 +205,38 @@ class HypertensionPatient(Patient):
     def cal_bounds(self):
         return {
             c.LB: self.cal_need * (1 - params.tol['GCAL']),
-            c.UB: self.cal_need * (1 + params.tol['GCAL'])
+            c.UB: self.cal_need * (1 + params.tol['GCAL']),
+            'UNIT': params.unit['GCAL']
         }
 
     @property
     def macro_bounds(self):
         fat_bounds = {
             c.LB: self.cal_need / params.calPerMG['ZF'] * 0.3,
-            c.UB: self.cal_need / params.calPerMG['ZF'] * 0.35
+            c.UB: self.cal_need / params.calPerMG['ZF'] * 0.35,
+            'UNIT': 'mg'
         }
         prot_bounds = {
             c.LB: 0.8 * self.weight * 1000,
-            c.UB: 1.6 * self.weight * 1000
+            c.UB: 1.6 * self.weight * 1000,
+            'UNIT': 'mg'
         }
         f182_bounds = {
             c.LB: 'None',
-            c.UB: self.cal_need * params.part['F182'] / params.calPerMG['ZF'] * 10
+            c.UB: self.cal_need * params.part['F182'] / params.calPerMG['ZF'] * 10,
+            'UNIT': 'mg'
         }
         f183_bounds = {
             c.LB: self.cal_need * params.part['F183'] / params.calPerMG['ZF'] / 10,
-            c.UB: 'None'
+            c.UB: 'None',
+            'UNIT': 'mg'
+
         }
         fiber_bounds = {
             c.LB: 3e1,
-            c.UB: 'None'
+            c.UB: 'None',
+            'UNIT': 'mg'
+
         }
         ch_bounds = {
             c.LB: (self.cal_bounds[c.LB] -
@@ -236,7 +244,9 @@ class HypertensionPatient(Patient):
                   prot_bounds[c.UB] * params.calPerMG['ZE']) / params.calPerMG['ZK'],
             c.UB: (self.cal_bounds[c.UB] -
                    fat_bounds[c.LB] * params.calPerMG['ZF'] -
-                   prot_bounds[c.LB] * params.calPerMG['ZE']) / params.calPerMG['ZK']
+                   prot_bounds[c.LB] * params.calPerMG['ZE']) / params.calPerMG['ZK'],
+            'UNIT': 'mg'
+
         }
 
         return dict(GCAL=self.cal_bounds,
@@ -258,10 +268,14 @@ class HypertensionPatient(Patient):
             raise TypeError('days must be of type list not ' + type(self.days))
         length = len(self.days)
         for i in bounds.iterkeys():
-            boundsForWeek.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length)
+            boundsForWeek.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length * 0.2)
                                                      if bounds[i][c.LB] else 'None')
-            boundsForWeek.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length)
+            boundsForWeek.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length * 5)
                                                      if bounds[i][c.UB] else 'None')
+            boundsForWeek.setdefault(i, {})['UNIT'] = bounds[i]['UNIT']
+
+        boundsForWeek['VA']['UB'] *= 10
+
         return boundsForWeek
 
     @property
@@ -285,10 +299,10 @@ class HypertensionPatient(Patient):
         ret_dict = dict(BF=dict(GCAL=self._set_bounds_by_tolerance(cal_need_bf),
                                 ZF=self._set_bounds_by_tolerance(fat_need_bf),
                                 ZE=self._set_bounds_by_tolerance(prot_need_bf)),
-                        WM=dict(GCAL=self._set_bounds_by_tolerance(cal_need_wm),
+                        LU=dict(GCAL=self._set_bounds_by_tolerance(cal_need_wm),
                                 ZF=self._set_bounds_by_tolerance(fat_need_wm),
                                 ZE=self._set_bounds_by_tolerance(prot_need_wm)),
-                        PL=dict(GCAL=self._set_bounds_by_tolerance(cal_need_cm),
+                        DI=dict(GCAL=self._set_bounds_by_tolerance(cal_need_cm),
                                 ZF=self._set_bounds_by_tolerance(fat_need_cm),
                                 ZE=self._set_bounds_by_tolerance(prot_need_cm)))
 

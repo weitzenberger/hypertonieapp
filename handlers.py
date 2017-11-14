@@ -11,14 +11,13 @@ declaration file.
 @author: L.We
 """
 
-
 import sys
-import json
 
 import form
 import awsapi
 from manager import GenerateManager, RegenerateManager
 from database import SBLSDatabase
+import traceback
 
 
 context = None
@@ -32,7 +31,7 @@ kwargs_cat = {
     'SN': dict(num=5)
 }
 
-
+@form.time_it
 def generate(event, context):
     """Main Lambda Function to generate new meal plans."""
 
@@ -41,14 +40,17 @@ def generate(event, context):
             cognito_id=event['unique_id'],
             event=event,
             prob_type=generate.__name__,
-            time_out=30,
+            time_out=120,
             cbc_log=False
     ) as manager:
-        manager.set_breakfast(num=10)
-        manager.set_warm_meal(num=10)
-        manager.set_plate(meat=10, veg=10, grain=10)
-        manager.set_snack(num=15)
-        manager.set_salad(num=5)
+        manager.set_meal_by_container()
+
+
+        # manager.set_breakfast(num=10)
+        # manager.set_warm_meal(num=10)
+        # manager.set_plate(meat=10, veg=10, grain=10)copy.deepcopy(self)
+        # manager.set_snack(num=15)
+        # manager.set_salad(num=5)
     return None
 
 
@@ -107,15 +109,16 @@ def invoke_generate_from_mobile_device(event, context):
     print cognito_id
     lambda_handler = awsapi.Lambda()
     payload = dict(unique_id=cognito_id, thisweek=True)
+    func_name = 'escamed-expositio-generate'
 
     lambda_response = lambda_handler.invoke_lambda_function(
-        func_name='escamed-mac-generate',
+        func_name=func_name,
         payload=payload
     )
     if form.get_week_day() > 4.4:
         payload['thisweek'] = False
         response = lambda_handler.invoke_lambda_function(
-            func_name='escamed-mac-generate',
+            func_name=func_name,
             payload=payload
         )
 
@@ -192,11 +195,6 @@ def generate_for_next_week(event, context):
     return
 
 
-def print_env_var(event, context):
-    import os
-    return os.getenv('SQL_HOST')
-
-
 def _get_cognito_id(event, context):
     """Returns CognitoID or placeholder for testing purposes or in case
     of exceptions.
@@ -234,8 +232,9 @@ def _get_cognito_id(event, context):
 
 if __name__ == '__main__' and sys.platform == 'darwin':
     event = dict(unique_id=_get_cognito_id(None, context),
-                 thisweek=False)
+                 thisweek=True)
     # print post_plan({'body': {'ingredient': {'H862100': 50}, 'unique_id_as_arg': 'asdf'}}, None)
-    # generate(event, context)
-    regenerate(event={'body': {'container': 'LU', 'date': '2017-09-12', 'meal_key': 'M0010', "unique_id_as_arg": "eu-central-1:b083ce1d-cb80-4271-a759-2530f043427a"}}, context=context)
+
+    generate(event, context)
+    #regenerate(event={'body': {'container': 'LU', 'date': '2017-09-30', 'meal_key': 'M0020', "unique_id_as_arg": "eu-central-1:099a01b6-76ae-41eb-ad05-7feec7ff1f3a"}}, context=context)
     pass

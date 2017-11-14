@@ -22,6 +22,7 @@ import dateutil.parser
 import collections
 
 
+
 decimal.getcontext().prec = 10
 
 
@@ -116,15 +117,20 @@ def get_remaining_days(thisweek):
         return [get_date_in_iso(i + 7 - today) for i in xrange(7)]
 
 
-def get_date_in_iso(timedelta=0):
+def get_date_in_iso(day_delta=0, year_delta=None):
     """Relativ date with regard to today.
 
-    :param timedelta: days as Integer
+    :param day_delta: days as Integer
     :return: date in ISO 8601
     """
-    datetime = dt.datetime.today() + dt.timedelta(days=timedelta)
-    return convert_datetime_to_iso(datetime)
-
+    datetime = dt.datetime.today() + dt.timedelta(days=day_delta)
+    if year_delta:
+        time_string = get_iso_by_datetime(datetime)
+        year = int(time_string[:4])
+        updated_year = year - year_delta
+        return str(updated_year) + time_string[4:]
+    else:
+        return get_iso_by_datetime(datetime)
 
 def get_week_in_iso(thisweek):
     """Returns this or next week in ISO 8601.
@@ -135,6 +141,21 @@ def get_week_in_iso(thisweek):
     isocal = dt.datetime.today().isocalendar()
     return str(isocal[0]) + '-' + str(isocal[1] + (0 if thisweek else 1))
 
+def get_dates_by_week(week):
+    """Returns a list of dates in ISO 8601
+
+    :param week: YYYY-'W'WW
+    :return:
+    """
+    ls = []
+    for i in range(7):
+        datetime = dt.datetime.strptime(week + '-' + str(i), "%Y-W%W-%w")
+        iso_date = get_iso_by_datetime(datetime)
+        ls.append(iso_date)
+    return ls
+
+
+
 
 def get_week_by_date(date):
     """Returns week for given date.
@@ -144,7 +165,7 @@ def get_week_by_date(date):
     """
     values = date.split('-')
     isocal = dt.datetime(int(values[0]), int(values[1]), int(values[2])).isocalendar()
-    return str(isocal[0]) + '-' + str(isocal[1])
+    return str(isocal[0]) + '-W' + str(isocal[1])
 
 
 def get_week_day():
@@ -152,12 +173,14 @@ def get_week_day():
     return dt.datetime.today().weekday() + dt.datetime.today().hour / 24.0
 
 
-def convert_datetime_to_iso(datetime):
+
+
+def get_iso_by_datetime(datetime):
     """Converts datetime object to a ISO8601 string."""
     return dt.date.isoformat(datetime)
 
 
-def convert_iso_to_date_time(timestr):
+def get_date_time_by_iso(timestr):
     """Converts ISO 8601 string to a datetime object."""
     return dateutil.parser.parse(timestr)
 
@@ -166,35 +189,18 @@ def convert_iso_to_date_time(timestr):
 
 
 @simple_decorator
-def set_cognito_id(function):
+def lambda_body_map(function):
+    """Decorator to process the event object for the standard
+    "passthrough" template provided by AWS API Gateway. Standard
+    variables in the method are:
+        cognito_id
+        whole_mapped_body"""
     def _wrapper(event, context):
-        placeholder_id = "eu-central-1:099a01b6-76ae-41eb-ad05-7feec7ff1f3a"
-        if sys.platform == 'darwin':
-            event.setdefault('requestContext', {}).\
-                setdefault('identity', {}).\
-                setdefault('cognitoIdentityId', placeholder_id)
-        else:
-            try:
-                print 'lambda-proxy call:'
-                print event["requestContext"]["identity"]["cognitoIdentityId"]
-            except NotImplementedError('Apparently there is no lambda-proxy integration for this lambda function. '
-                                       'CognitoID could not be retrieved. Looking for CognitoID in event payload.'):
-                try:
-                    event["requestContext"]["identity"]["cognitoIdentityId"] = event['body']['unique_id_as_arg']
-                except AttributeError('unique_id_as_arg could not be found in event payload.'
-                                      'placeholder_id is used instead'):
-                    event["requestContext"]["identity"]["cognitoIdentityId"] = placeholder_id
-            else:
-                if event["requestContext"]["identity"]["cognitoIdentityId"] is None:
-                    try:
-                        event["requestContext"]["identity"]["cognitoIdentityId"] = event['body']['unique_id_as_arg']
-                    except AttributeError('unique_id_as_arg could not be found in event payload.'
-                                          'placeholder_id is used instead'):
-                        event["requestContext"]["identity"]["cognitoIdentityId"] = placeholder_id
-            finally:
-                return function(event, context)
+        whole_mapped_body = event
+        cognito_id = event["cognito-identity-id"]
+        event = json.loads(event["body-json"])
+        return function(event, context, cognito_id, whole_mapped_body)
     return _wrapper
-
 
 @simple_decorator
 def lambda_proxy(function):
@@ -208,6 +214,13 @@ def lambda_proxy(function):
         return {
             "isBase64Encoded": False,
             "statusCode": 200,
+            "headers": {'Accept': "*",
+                        'Content-Type': "application/json"
+                # 'Access-Control-Allow-Origin': '*',
+                #         'Access-Control-Allow-Headers':'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+                #         'Access-Control-Allow-Credentials': True,
+                #         'Content-Type': 'application/json'
+                        },
             "body": json.dumps(response)
         }
     return _wrapper
@@ -246,6 +259,11 @@ def _convert(type_to_process):
         return _wrapper
     return _real_decorator
 
+@_convert(type_to_process='basestring')
+def convert_empty_string_to_None(data):
+    if data == u'':
+        return None
+    return data
 
 @_convert(type_to_process='basestring')
 def convert_json(data):
@@ -257,7 +275,7 @@ def convert_json(data):
     """
     try:
         return json.loads(data)
-    except:
+    except ValueError:
         return data
 
 
@@ -269,6 +287,7 @@ def convert_to_decimal(data):
     :param data:
     :return:
     """
+    data = int(round(data, 0))
     return decimal.Decimal(data) * decimal.Decimal(1)
 
 

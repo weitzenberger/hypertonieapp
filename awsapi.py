@@ -11,14 +11,18 @@ DynamoDB Interface.
 """
 import json
 import boto3
+import datetime as dt
+import collections
 
 import constants as c
 import form
 import params
+import pprint
 
 # Work around for decimal rounding bug. Monkey Patch!
 import decimal
 from boto3.dynamodb.types import DYNAMODB_CONTEXT
+from boto3.dynamodb.conditions import Key, Attr
 DYNAMODB_CONTEXT.traps[decimal.Inexact] = 0
 DYNAMODB_CONTEXT.traps[decimal.Rounded] = 0
 decimal.getcontext().prec = 10
@@ -163,6 +167,19 @@ if __name__ == '__main__':
     handler = Cognito()
     print handler.get_records_as_dict(c.DATASET_VITAL, "eu-central-1:f0b34d2c-f014-4966-b851-9b088a3218f9")
 
+class S3(object):
+    def __init__(self):
+        self.client = boto3.client('s3')
+
+    def get_img_url(self, sbls):
+        bucket3 = 'shutterstock-img-bucket'
+
+        bucket_location = self.client.get_bucket_location(Bucket=bucket3)
+        object_url = "https://s3-{0}.amazonaws.com/{1}/{2}.jpg".format(
+            bucket_location['LocationConstraint'],
+            bucket3,
+            sbls)
+        return object_url
 
 class DynamoUserData(object):
     """Manages all interaction with the user data table in DynamoDB"""
@@ -170,7 +187,12 @@ class DynamoUserData(object):
     def __init__(self):
         self.dynamodb = boto3.resource('dynamodb', region_name='eu-central-1')
         self.client = boto3.client('dynamodb', region_name='eu-central-1')
-        self.table = self.dynamodb.Table(c.Tab)
+        self.table_user_data = self.dynamodb.Table(c.TABLE_USER_DATA)
+        self.table_blood_pressure = self.dynamodb.Table(c.TABLE_BLOOD_PRESSURE)
+        self.table_weight = self.dynamodb.Table(c.TABLE_WEIGHT)
+        self.table_shopping_list = self.dynamodb.Table(c.TABLE_SHOPPING_LIST)
+        self._tree = lambda: collections.defaultdict(self._tree)
+
 
     def _reformat_unique_id_list(self, input_list, output_list):
         """Reformats the list of cognito ids that is returned from the DynamoDB
@@ -184,7 +206,257 @@ class DynamoUserData(object):
             output_list.append(identity[c.UNIQUE_IDENTIFIER].values()[0])
         return output_list
 
-    def scan_table_for_active_users(self, delta_time):
+
+    def create_shopping_list(self, unique_id, ls_date):
+        response = self.table_user_data.update_item(
+            Key={
+                'unique_id': unique_id
+            },
+            UpdateExpression='SET #shopping_list_days = :ls_date',
+            ExpressionAttributeNames={
+                '#shopping_list_days': 'shopping_list_days'
+            },
+            ExpressionAttributeValues={
+                ":ls_date": ls_date
+            }
+        )
+
+        pprint.pprint(response)
+
+    def shopping_list(self, unique_id):
+
+        response = self.table_user_data.get_item(
+            Key={
+                'unique_id': unique_id
+            },
+            ProjectionExpression='#attr',
+            ExpressionAttributeNames={
+                '#attr': 'shopping_list_days'
+            }
+        )
+        shopping_list = self._tree()
+        for date in response['Item']['shopping_list_days']:
+            response = self.table_shopping_list.get_item(
+                Key={
+                    'unique_id': unique_id,
+                    'date': date
+                },
+                ConsistentRead=True,
+                ProjectionExpression='#attr',
+                ExpressionAttributeNames={
+                    '#attr': 'actual_list'
+                }
+            )
+            try:
+                for sbls_key, sbls_content in response['Item']['actual_list'].iteritems():
+                    if not sbls_content['CHECKED']:
+                        shopping_list[sbls_key].setdefault('VAL', decimal.Decimal('0.0'))
+                        shopping_list[sbls_key]['UNIT'] = sbls_content['UNIT']
+                        shopping_list[sbls_key]['VAL'] += sbls_content['VAL']
+            except:
+                print "no shoppinglist for this day"
+        return form.convert_to_float(shopping_list)
+
+    def shopping_list_check_item(self, unique_id, sbls):
+        response = self.table_user_data.get_item(
+            Key={
+                'unique_id': unique_id
+            },
+            ProjectionExpression='#attr',
+            ExpressionAttributeNames={
+                '#attr': 'shopping_list_days'
+            }
+        )
+        for date in response['Item']['shopping_list_days']:
+            response = self.table_shopping_list.update_item(
+                Key={
+                    'unique_id': unique_id,
+                    'date': date
+                },
+                UpdateExpression='SET #actual_list.#sbls.#checked = :checked',
+                ConditionExpression=Attr('#actual_list.#sbls').exists(),
+                ExpressionAttributeNames={
+                    '#actual_list': 'actual_list',
+                    '#sbls': sbls,
+                    '#checked': 'CHECKED'
+                },
+                ExpressionAttributeValues={
+                    ":checked": True
+                }
+            )
+
+    def shopping_list_uncheck_item(self, unique_id, sbls):
+        response = self.table_user_data.get_item(
+            Key={
+                'unique_id': unique_id
+            },
+            ProjectionExpression='#attr',
+            ExpressionAttributeNames={
+                '#attr': 'shopping_list_days'
+            }
+        )
+        for date in response['Item']['shopping_list_days']:
+            response = self.table_shopping_list.update_item(
+                Key={
+                    'unique_id': unique_id,
+                    'date': date
+                },
+                UpdateExpression='SET #actual_list.#sbls.#checked = :checked',
+                ConditionExpression=Attr('#actual_list.#sbls').exists(),
+                ExpressionAttributeNames={
+                    '#actual_list': 'actual_list',
+                    '#sbls': sbls,
+                    '#checked': 'CHECKED'
+                },
+                ExpressionAttributeValues={
+                    ":checked": False
+                }
+            )
+
+
+
+
+    def average_blood_pressure_for_day(self, unique_id, date):
+        """Returns average blood pressure for the considered day
+
+        :param unique_id: cognito_id
+        :param date: YYYY-MM-DD
+        :return:
+        """
+        SYS_HIGH = 140
+        SYS_HIGH_NORM = 120
+
+        DIA_HIGH = 90
+        DIA_HIGH_NORM = 80
+
+
+        tomorrow = form.get_date_time_by_iso(date) + dt.timedelta(days=1)
+        tomorrow_str = form.get_iso_by_datetime(tomorrow)
+
+        response = self.table_blood_pressure.query(
+            Select='ALL_ATTRIBUTES',
+            KeyConditionExpression=Key('unique_id').eq(unique_id) & Key('date').between(date, tomorrow_str),
+            TableName=c.TABLE_BLOOD_PRESSURE
+        )
+
+        if not response['Items']:
+            return None
+
+        pressure_systolic_sum = 0
+        pressure_diastolic_sum = 0
+
+        for item in response['Items']:
+            pressure_diastolic_sum += item['diastolic']
+            pressure_systolic_sum += item['systolic']
+
+        measure_count = len(response['Items'])
+        pressure_systolic_average = pressure_systolic_sum / measure_count
+        pressure_diastolic_average = pressure_diastolic_sum / measure_count
+
+        if pressure_diastolic_average > DIA_HIGH:
+            status_diastolic = 'increase'
+        elif pressure_diastolic_average > DIA_HIGH_NORM:
+            status_diastolic = 'normal'
+        else:
+            status_diastolic = 'optimal'
+
+        if pressure_systolic_average > SYS_HIGH:
+            status_systolic = 'increase'
+        elif pressure_systolic_average > SYS_HIGH_NORM:
+            status_systolic = 'normal'
+        else:
+            status_systolic = 'optimal'
+
+        return dict(
+            systolic=form.convert_to_float(pressure_systolic_average),
+            diastolic=form.convert_to_float(pressure_diastolic_average),
+            status_diastolic=status_diastolic,
+            status_systolic=status_systolic
+        )
+
+    def average_weight_for_day(self, unique_id, date):
+        """Returns average weight for considered day
+
+        :param unique_id: cognito_id
+        :param date: YYYY-MM-DD
+        :return: None | weight, status
+        """
+        tomorrow = form.get_date_time_by_iso(date) + dt.timedelta(days=1)
+        tomorrow_str = form.get_iso_by_datetime(tomorrow)
+
+        response = self.table_weight.query(
+            Select='ALL_ATTRIBUTES',
+            KeyConditionExpression=Key('unique_id').eq(unique_id) & Key('date').between(date, tomorrow_str),
+            TableName=c.TABLE_WEIGHT
+        )
+
+        if not response['Items']:
+            return None
+
+        weight_sum = 0
+
+        for item in response['Items']:
+            weight_sum += item['weight']
+
+        measure_count = len(response['Items'])
+        weight_average = weight_sum / measure_count
+
+        if weight_average > 150:
+            status = 'increase'
+        elif weight_average > 130:
+            status = 'normal'
+        else:
+            status = 'optimal'
+
+        return dict(
+            weight=form.convert_to_decimal(weight_average),
+            status=status
+        )
+
+
+    def check_blood_pressure_measurements(self, unique_id, date):
+        """
+
+        :param unique_id: cognito_id
+        :param date: YYYY-MM-DD
+        :return:
+        """
+        MID_DAY = 14
+        tomorrow_dt = form.get_date_time_by_iso(date) + dt.timedelta(days=1)
+        tomorrow_str = form.get_iso_by_datetime(tomorrow_dt)
+
+        response = self.table_blood_pressure.query(
+            Select='ALL_ATTRIBUTES',
+            KeyConditionExpression=Key('unique_id').eq(unique_id) & Key('date').between(date, tomorrow_str),
+            TableName=c.TABLE_BLOOD_PRESSURE
+        )
+        measure_morning = False
+        measure_evening = False
+        for item in response['Items']:
+            current_dt = form.get_date_time_by_iso(item['date'])
+            if current_dt.hour < MID_DAY and current_dt.hour > 3:
+                measure_morning = True
+            if current_dt.hour > MID_DAY:
+                measure_evening = True
+
+        d = {}
+        morning_passed = dt.datetime.now() > form.get_date_time_by_iso(date) + dt.timedelta(hours=MID_DAY)
+        evening_passed = dt.datetime.now() > tomorrow_dt
+
+        if morning_passed:
+            d.update(dict(morning=measure_morning))
+        else:
+            if measure_morning:
+                d.update(dict(morning=measure_morning))
+
+        if evening_passed:
+            d.update(dict(evening=measure_evening))
+        else:
+            if measure_evening:
+                d.update(dict(measure_evening))
+        return d
+
+    def query_table_for_active_users(self, delta_time):
         """Scans the user data table for active users. This method is invoked once
         every week when new plans are generated for the following week.
 
@@ -193,7 +465,7 @@ class DynamoUserData(object):
         :return: list of cognito ids that are considered to be active
         """
         unique_id_list = []
-        response = self.client.scan(
+        response = self.client.query(
             TableName=c.TABLE_USER_DATA,
             Select='SPECIFIC_ATTRIBUTES',
             ProjectionExpression='#id',
@@ -201,7 +473,8 @@ class DynamoUserData(object):
             ExpressionAttributeNames={'#id': c.UNIQUE_IDENTIFIER,
                                       '#last_login': c.LAST_LOGIN},
             ExpressionAttributeValues={':critical_date': {'S': form.get_date_in_iso(-delta_time)}},
-            ConsistentRead=True)
+            ConsistentRead=True
+        )
         last_key = response.get('LastEvaluatedKey', None)
         unique_id_list = self._reformat_unique_id_list(input_list=response, output_list=unique_id_list)
         while last_key:
@@ -281,9 +554,17 @@ class DynamoNutrition(object):
 
 
                 for n in params.nutrientList:
-                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_DAY][n] += cat_content[n] * (1 if add else -1)
-                    item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n] += cat_content[n] * (1 if add else -1)
-                    item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_MEAL][container][n] += cat_content[n] * (1 if add else -1)
+                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['VAL'] += cat_content[n]['VAL'] *\
+                                                                                       (1 if add else -1)
+                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['UNIT'] = cat_content[n]['UNIT']
+                    item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['VAL'] += cat_content[n]['VAL'] * \
+                                                                                     (1 if add else -1)
+                    item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['UNIT'] = cat_content[n]['UNIT']
+                    item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_MEAL][container][n]['VAL'] += \
+                        cat_content[n]['VAL'] * (1 if add else -1)
+                    item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_MEAL][container][n]['UNIT'] = \
+                        cat_content[n]['UNIT']
+
 
             table.update_item(TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
                               Key={c.UNIQUE_IDENTIFIER: unique_id,
@@ -445,6 +726,7 @@ class DynamoNutrition(object):
         :param item: {'BF': {SBLS1 oder Mxxxx: {'EARG' : xxx, ..}, SBLS2...}}
         """
         plan = form.convert_to_decimal(nutrients.plan)
+        print 'this is update item'
         print plan
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
         for date, day_plan in plan.iteritems():
@@ -495,21 +777,20 @@ class DynamoNutrition(object):
         """
 
         :param unique_id: basestring, cognito_id
-        :param date: basestring, ISO-8601 date
+        :param date: basestring | list, ISO-8601 date
         :param top_level: basestring, top level attribute
         :param second_level: basestring, second level attribute
         :param third_level: basestring, third level attribute
         :return: data structure that is in last defined level
         """
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
+        if isinstance(date, basestring):
+            raise TypeError('date must be a list or tuple not basestring')
+
         if third_level:
             if not second_level:
                 raise ValueError('second_level must be defined when third_level is.')
-            print top_level
-            print second_level
-            print third_level
-            print unique_id
-            print date
+
             item = table.get_item(Key={c.UNIQUE_IDENTIFIER: unique_id,
                                        c.DATE: date},
                                   ProjectionExpression='#toplevel.#secondlevel.#thirdlevel',

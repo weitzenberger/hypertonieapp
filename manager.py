@@ -12,6 +12,7 @@ a new plan or modify existing plans.
 
 import pulp
 import abc
+import traceback
 
 import form
 import constants as c
@@ -20,7 +21,6 @@ import patients
 import awsapi
 from optimizationtools import Modeller, Evaluator
 from database import SBLSDatabase
-
 
 switch_patient = {'Hypertension': patients.HypertensionPatient,
                   'DGE': patients.DGEPatient}
@@ -58,6 +58,7 @@ class ModelManager(object):
         self.dB = SBLSDatabase()
         self.meals = {}
         self.managerLog = {}
+        self.exclusions = self._exclusions()
 
     @abc.abstractmethod
     def __enter__(self):
@@ -74,108 +75,88 @@ class ModelManager(object):
     def _set_splitted_macro_bounds(self):
         self.splitted_macro_bounds = None
 
-    @form.time_it
-    def set_breakfast(self, num):
-        self.meals['BF'] = self.dB.get_random_meals(
-            num=num,
-            mealtype='BF',
-            splittedneeds=self.splitted_macro_bounds,
-            exclusion=None
+    def set_meal_by_container(self):
+        cognito_handler = awsapi.Cognito()
+
+        data_sets = cognito_handler.get_records_as_dict(
+            dataset=c.DATASET_VITAL,
+            cognito_id=self.cognitoId
         )
-        print 'bullshit'
-        self.modeller.set_breakfast(
-            meals=self.meals['BF'],
-            needs=self.splitted_macro_bounds
+        print 'this is container cat'
+        print data_sets['containerCategory']
+        try:
+            container_category = data_sets['containerCategory']
+        except:
+            container_category = {u'BF': [{u'preference': u'obligatory', u'key': u'BREAD'}, {u'preference': u'unwanted', u'key': u'EGGS'}], u'LU': [{u'preference': u'obligatory', u'key': u'FRUIT'}]}
+
+
+        for container_key, container_content in container_category.iteritems():
+            self.meals[container_key] = []
+            meal_type_exclusion = []
+            for element in container_content:
+                if element['preference'] == 'obligatory':
+                    preference_condition = [element['key'] + ' = 1']
+                    item = {'preference': 'obligatory',
+                            'meals': self.dB.get_random_meals_for_container_version(
+                                num=8,
+                                container=container_key,
+                                splitted_needs=self.splitted_macro_bounds,
+                                conditions=self.exclusions + preference_condition
+                            )}
+                    self.meals[container_key].append(item)
+                elif element['preference'] == 'unwanted':
+                    meal_type_exclusion.append(element['key'] + ' IS NULL')
+            item = {'preference': 'optional',
+                    'meals': self.dB.get_random_meals_for_container_version(
+                        num=20,
+                        container=container_key,
+                        splitted_needs=self.splitted_macro_bounds,
+                        conditions=self.exclusions + meal_type_exclusion
+                    )}
+            self.meals[container_key].append(item)
+
+        rest_container = {'BF', 'LU', 'DI', 'SN'} - set(container_category.keys())
+        for container_key in rest_container:
+            self.meals[container_key] = []
+            item = {
+                'preference': 'optional',
+                'meals': self.dB.get_random_meals_for_container_version(
+                    num=20,
+                    container=container_key,
+                    splitted_needs=self.splitted_macro_bounds,
+                    conditions=self.exclusions
+                )}
+            self.meals[container_key].append(item)
+
+
+
+        self.modeller.set_meals(
+            meals=self.meals,
+            needs=self.splitted_macro_bounds,
+            add_meal=None
         )
 
-    def set_warm_meal(self, num):
-        self.meals['WM'] = self.dB.get_random_meals(
-            num=num,
-            mealtype='WM',
-            splittedneeds=self.splitted_macro_bounds,
-            exclusion=None
-        )
-        self.modeller.set_warm_meal(
-            meals=self.meals['WM'],
-            needs=self.splitted_macro_bounds
-        )
 
-    def set_salad(self, num):
-        self.meals['SA'] = self.dB.get_random_salad(
-            num=num,
-            exclusion=None
-        )
-        self.modeller.set_salad(foods=self.meals['SA'])
 
-    def set_snack(self, num):
-        self.meals['SN'] = self.dB.get_random_meals(
-            num=num,
-            mealtype='SNACK',
-            splittedneeds=self.splitted_macro_bounds,
-            exclusion=None
-        )
-        self.modeller.set_snacks(foods=self.meals['SN'])
-
-    def set_plate(self, meat, veg, grain):
-        self.meals['PL'] = self.dB.get_random_plate(
-            meat=meat,
-            veg=veg,
-            grain=grain,
-            exclusion=None
-        )
-        self.modeller.set_plate(
-            foods=self.meals['PL'],
-            needs=self.splitted_macro_bounds
-        )
-
-    def set_smoothie(self, fluid, primary, secondary, boost):
-        self.meals['SM'] = self.dB.get_random_smoothie(
-            fluid=fluid,
-            primary=primary,
-            secondary=secondary,
-            boost=boost,
-            exclusion=self.conditions
-        )
-        self.modeller.set_smoothie(foods=self.meals['SM'])
-
-    def set_sandwich(self, bread, butter, topping):
-        self.meals['SW'] = self.dB.get_random_sandwich(
-            bread=bread,
-            butter=butter,
-            topping=topping,
-            exclusion=self.conditions
-        )
-        self.modeller.set_sandwich(foods=self.meals['SW'])
-
-    def set_meal_by_cat(self, cat, **kwargs):
-        switch_meal = {
-            'PL': self.set_plate,
-            'SM': self.set_smoothie,
-            'WM': self.set_warm_meal,
-            'BF': self.set_breakfast,
-            'SW': self.set_sandwich,
-            'SA': self.set_salad,
-            'SN': self.set_snack
-        }
-        switch_meal[cat](**kwargs)
-
-    @property
-    def conditions(self):
+    def _exclusions(self):
         cognito_handler = awsapi.Cognito()
 
         data_sets = cognito_handler.get_records_as_dict(dataset=c.DATASET_VITAL, cognito_id=self.cognitoId)
-        print data_sets
 
-        ls_intol = [element.join(['[', ']']) for element in data_sets['intolerances']]
-        ls_intol = [element + " != 1" for element in ls_intol]
+        try:
+            ls_intol = [element.join(['[', ']']) for element in data_sets['intolerances']]
+            ls_intol = [element + " IS NULL" for element in ls_intol]
 
-        ls_al = [element.join('[', ']') for element in data_sets['allergies']]
-        ls_al = [element + " != 1" for element in ls_al]
 
-        ls_hab = [element.join('[', ']') for element in data_sets['habit']]
-        ls_hab = [element + " = 1" for element in ls_hab]
+            ls_al = [element.join(['[', ']']) for element in data_sets['allergies']]
+            ls_al = [element + " IS NULL" for element in ls_al]
 
-        return tuple(ls_hab + ls_intol + ls_al)
+            ls_hab = [element.join(['[', ']']) for element in data_sets['habit']]
+            ls_hab = [element + " = 1" for element in ls_hab]
+        except:
+            pass
+
+        return [u'[VEGGIE] = 1', u'[AL_CRUSTACEAN] IS NULL', u'[AL_PEANUTS] IS NULL'] #ls_hab + ls_al + ls_intol
 
 
 
@@ -224,27 +205,33 @@ class RegenerateManager(ModelManager):
             days=[self.event['body'][c.DATE]],
             bounds=self.boundsForWeek)
 
-        self.element = self.userDataStore.get_from_nutrients_for_day(
+        element = self.userDataStore.get_from_nutrients_for_day(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             top_level=c.PLAN,
             second_level=self.event['body']['container'],
             third_level=self.event['body']['meal_key']
         )
-        self.addDay = self.userDataStore.get_from_nutrients_for_day(
+        add_day = self.userDataStore.get_from_nutrients_for_day(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             top_level=c.NUTRIENTS_FOR_DAY
         )
-        self.addWeek = self.userDataStore.get_from_nutrients_for_week(
+        add_week = self.userDataStore.get_from_nutrients_for_week(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             toplevel=c.NUTRIENTS_FOR_WEEK
         )
+        self.addWeek = {}
+        self.addDay = {}
 
         for n in params.nutrientList:
-            self.addWeek[n] -= self.element[n]
-            self.addDay[n] -= self.element[n]
+            print add_week
+            self.addWeek[n] = add_week[n]['VAL'] / params.switch_unit_inv[add_week[n]['UNIT']] / params.BLS2gramm[n] \
+                             - element[n]['VAL'] / params.switch_unit_inv[element[n]['UNIT']] / params.BLS2gramm[n]
+            self.addDay[n] = add_day[n]['VAL'] / params.switch_unit_inv[add_day[n]['UNIT']] / params.BLS2gramm[n] \
+                             - element[n]['VAL'] / params.switch_unit_inv[add_day[n]['UNIT']] / params.BLS2gramm[n]
+            print self.addWeek
 
         return self
 
@@ -310,7 +297,7 @@ class RegenerateManager(ModelManager):
 
 class GenerateManager(ModelManager):
     def __init__(self, cognito_id, event, time_out, cbc_log, patient='Hypertension',
-                 strong_branching=False, prob_type='generate'):
+                 strong_branching=True, prob_type='generate'):
         super(GenerateManager, self).__init__(
             cognito_id=cognito_id,
             event=event,
@@ -339,9 +326,9 @@ class GenerateManager(ModelManager):
 
         days = form.get_remaining_days(thisweek=self.event['thisweek'])
         self.actualPatient = switch_patient[self.patient](
-            birthday=data_set_vital['Age'],
-            height=data_set_vital['Height'],
-            weight=data_set_vital['Weight'],
+            birthday=data_set_vital['age'],
+            height=data_set_vital['height'],
+            weight=data_set_vital['weight'],
             pal=data_set_vital['pal'],
             sex=data_set_vital['gender'],
             db=self.dB,
@@ -368,6 +355,10 @@ class GenerateManager(ModelManager):
         :param exc_tb:
         :return: None
         """
+        print exc_type
+        print exc_val
+        print exc_tb
+        traceback.print_exc()
         self.modeller.set_global(needs=self.actualPatient.macro_bounds)
 
         self.problem.solve(
@@ -381,16 +372,19 @@ class GenerateManager(ModelManager):
 
 
         if pulp.LpStatus[self.problem.status] == 'Optimal':
+            cognito_id = self.cognitoId
+            cognito_id = "eu-central-1:f0b34d2c-f014-4966-b851-9b088a3218f9"
+            cognito_id = 'TEST'
             self.eval = Evaluator(
                 model=self.problem,
-                meals=self.meals,
+                meals=self.modeller.all_meals,
                 variable=self.modeller.variable,
                 db=self.dB
             )
             self.nutrients = self.eval.get_all_nutrients()
             self.userDataStore.write_to_nutrients_for_day(
                 plan=self.nutrients.plan,
-                unique_id=self.cognitoId,
+                unique_id=cognito_id,
                 status=pulp.LpStatus[self.problem.status],
                 nutForDay=self.nutrients.nutrientsForDay,
                 nutForMeal=self.nutrients.nutrientsForMeal,
@@ -399,18 +393,20 @@ class GenerateManager(ModelManager):
             )
 
             self.userDataStore.write_to_nutrients_for_week(
-                unique_id=self.cognitoId,
+                unique_id=cognito_id,
                 nutForWeek=self.nutrients.nutrientsForWeek,
                 boundsForWeek=self.actualPatient.micro_bounds,
                 time=self.problem.solutionTime
             )
         else:
-            print self.problem.fixObjective()
+            print 'hello'
+            print self.problem.fixObjective
+            print pulp.LpStatus[self.problem.status]
             raise RuntimeError('LP Problem could not be solved. No plan is stored for this user.')
 
         self.dB.cur.close()
         self.managerLog = dict(LpStatus=pulp.LpStatus[self.problem.status],
-                                 Time=self.problem.solutionTime)
+                               Time=self.problem.solutionTime)
         return None
 
     def _set_splitted_macro_bounds(self):

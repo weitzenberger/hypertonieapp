@@ -14,6 +14,9 @@ import os
 TABLE_NUTRITIONAL_NEEDS_WEEK = 'NutrientsForWeek'
 TABLE_NUTRITIONAL_NEEDS_DAY = 'NutrientsForDay'
 TABLE_USER_DATA = 'UserDataTable'
+TABLE_BLOOD_PRESSURE = "BloodPressure"
+TABLE_WEIGHT = "Weight"
+TABLE_SHOPPING_LIST = "ShoppingList"
 
 # top level attributes
 NUTRIENTS_FOR_WEEK = 'nutrients_for_plan'
@@ -42,19 +45,19 @@ SQL_USER = "engelstrompete"
 SQL_PW = "escagang69"
 SQL_DB_NAME = "main"
 SQL_BLS = '[Main].[dbo].[BLS_3.02]'
-SQL_STA = '[Main].[dbo].[standard]'
-SQL_MEAL_DES = '[Main].[dbo].[meal_des]'
-SQL_MEAL_ING = '[Main].[dbo].[meal_comp]'
-SQL_SALAD = '[Main].[dbo].[gs_ing]'
-SQL_SALAD_COMBI = '[Main].[dbo].[gs_comp]'
-SQL_SALAD_FRUIT = '[BLSmaindb].[dbo].[salad_fruit]'
-SQL_CURD = '[BLSmaindb].[dbo].[curd]'
-SQL_SALAD_BREAD = '[BLSmaindb].[dbo].[salad_bread]'
-SQL_ITEMS = '[Main].[dbo].[Items]'
-SQL_SMOOTHIES = '[BLSmaindb].[dbo].[Smoothie]'
-SQL_SANDWICH = '[BLSmaindb].[dbo].[Sandwich]'
+SQL_STA = '[Main].[dbo].[STA]'
+SQL_MEAL_DES = '[Main].[dbo].[MEAL_DES]'
+SQL_MEAL_ING = '[Main].[dbo].[MEAL_COMP]'
 SQL_DGE = '[Main].[dbo].[DGE]'
-SQL_PLATE = '[Main].[dbo].[PLATE]'
+SQL_INTOLERNACES = '[Main].[dbo].[INTOLERANCES]'
+SQL_NUTRIENTS = '[Main].[dbo].[NUTRIENTS]'
+SQL_HABITS = '[Main].[dbo].[HABITS]'
+SQL_CONTAINER_CAT = '[Main].[dbo].[CONTAINER_CATEGORIES]'
+SQL_ALLERGIES = '[Main].[dbo].[ALLERGIES]'
+
+MYSQL_BLS = 'kadia.bls'
+
+
 
 """ key words """
 LB = 'LB'

@@ -55,8 +55,8 @@ def check_last_login(event, context):
     if event[c.DATASET_NAME] == c.DATASET_LAST_LOGIN:
         old_timestr = event[c.DATASET_RECORDS][c.LAST_LOGIN][c.OLD_VALUE]
         new_timestr = event[c.DATASET_RECORDS][c.LAST_LOGIN][c.NEW_VALUE]
-        old_datetime = Formatter.convert_iso_to_date_time(old_timestr)
-        new_datetime = Formatter.convert_iso_to_date_time(new_timestr)
+        old_datetime = Formatter.get_date_time_by_iso(old_timestr)
+        new_datetime = Formatter.get_date_time_by_iso(new_timestr)
         delta_time = (new_datetime - old_datetime).total_seconds() / 3600.0 / 24.0
         if delta_time > Param.crit_time - 0.5:
             catch_stream_from_cognito(event=event, context=context)
