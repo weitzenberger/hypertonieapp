@@ -118,7 +118,7 @@ def get_remaining_days(thisweek):
 
 
 def get_date_in_iso(day_delta=0, year_delta=None):
-    """Relativ date with regard to today.
+    """Relative date with regard to today.
 
     :param day_delta: days as Integer
     :return: date in ISO 8601
@@ -127,7 +127,7 @@ def get_date_in_iso(day_delta=0, year_delta=None):
     if year_delta:
         time_string = get_iso_by_datetime(datetime)
         year = int(time_string[:4])
-        updated_year = year - year_delta
+        updated_year = int(year - year_delta)
         return str(updated_year) + time_string[4:]
     else:
         return get_iso_by_datetime(datetime)
@@ -155,8 +155,6 @@ def get_dates_by_week(week):
     return ls
 
 
-
-
 def get_week_by_date(date):
     """Returns week for given date.
 
@@ -171,8 +169,6 @@ def get_week_by_date(date):
 def get_week_day():
     """Returns day of the week. Value is continuous and considers day time"""
     return dt.datetime.today().weekday() + dt.datetime.today().hour / 24.0
-
-
 
 
 def get_iso_by_datetime(datetime):
@@ -201,6 +197,7 @@ def lambda_body_map(function):
         event = json.loads(event["body-json"])
         return function(event, context, cognito_id, whole_mapped_body)
     return _wrapper
+
 
 @simple_decorator
 def lambda_proxy(function):
@@ -259,11 +256,13 @@ def _convert(type_to_process):
         return _wrapper
     return _real_decorator
 
+
 @_convert(type_to_process='basestring')
 def convert_empty_string_to_None(data):
     if data == u'':
         return None
     return data
+
 
 @_convert(type_to_process='basestring')
 def convert_json(data):
@@ -279,6 +278,7 @@ def convert_json(data):
         return data
 
 
+
 @_convert(type_to_process='number')
 def convert_to_decimal(data):
     """Converts all Numbers in any given data structure
@@ -287,8 +287,10 @@ def convert_to_decimal(data):
     :param data:
     :return:
     """
+    if (data is True) or (data is False):
+        return data
     data = int(round(data, 0))
-    return decimal.Decimal(data) * decimal.Decimal(1)
+    return decimal.Decimal(data)
 
 
 @_convert(type_to_process='number')
@@ -296,6 +298,8 @@ def convert_to_float(data):
     """Converts all Numbers in any
     given data structure to floats
     """
+    if (data is True) or (data is False):
+        return data
     return float(data)
 
 

@@ -134,6 +134,16 @@ bounds = {'EARG':   {C.LB: 5000,    C.UB: None, 'UNIT': u'mg'},
           'VD':     {C.LB: 20.00,   C.UB: None, 'UNIT': u'µg'},
           'ZB':     {C.LB: 30e3,    C.UB: None, 'UNIT': u'mg'}}
 
+kwargs_cat = {
+    'PL': dict(meat=10, veg=10, grain=10),
+    'SM': dict(fluid=6, primary=6, secondary=6, boost=6),
+    'WM': dict(num=5),
+    'BF': dict(num=10),
+    'SW': dict(bread=5, butter=2, topping=2),
+    'SA': dict(num=5),
+    'SN': dict(num=5)
+}
+
 # fats
 f_sat_ub = 0.1  # 8-10%
 f_unsat_lb = 0.12
@@ -169,8 +179,8 @@ nutrientset = ['SBLS', 'GCAL', 'ZK', 'ZB', 'ZF', 'FS', 'FU', 'FP', 'FO6', 'FO3',
 nutrientsMacroList = ['GCAL',
                       'ZF',
                       'ZE',
-                      'F182',
-                      'F183',
+                      #'F182',
+                      #'F183',
                       'ZK']
 
 nutrientsMicroList = ['EARG',
@@ -182,27 +192,27 @@ nutrientsMicroList = ['EARG',
                       'MCA',
                       'MCL',
                       'MCU',
-                     # 'MF',
+                      #'MF',
                       'MFE',
                       'MJ',
                       'MK',
                       'MMN',
                       'MNA',
-                      'MP',
+                      #'MP',
                       'MZN',
                       'VA',
                       'VB1',
                       'VB12',
                       'VB2',
-                      #'VB3A',
+                      'VB3A',
                       'VB5',
                       'VB6',
                       'VB7',
                       'VB9G',
                       'VK'
                       ]
-nutrientList = nutrientsMacroList + nutrientsMicroList
 
+nutrientList = nutrientsMacroList + nutrientsMicroList
 
 BLS2gramm = { 'GCAL': 1,
               'ZF': 1e-3,
@@ -266,7 +276,7 @@ assignUnit = {
               'VB1': 1e6,
               'VB12': 1e6,
               'VB2': 1e6,
-             # 'VB3A': 1e6,
+              'VB3A': 1e6,
               'VB5': 1e6,
               'VB6': 1e6,
               'VB7': 1e6,
@@ -283,6 +293,9 @@ switch_unit_inv = {v: k for k, v in switch_unit.iteritems()}
 unit = {k: switch_unit[v] for (k, v) in assignUnit.iteritems()}
 
 unit['GCAL'] = u'kcal'
+
+
+default_nutrient_checked_dict = {key: {'VAL': 0.0, 'UNIT': unit[key]} for key in nutrientList}
 
 
 
@@ -303,6 +316,20 @@ allergies = ['AL_EGG',
 
 intolerances = ['IN_GLUT',
                 'IN_LAKT']
+
+
+meal_plan_1 = "Schau Dir meine Empfehlungen an."
+meal_plan_2 = "Super, Du hast Dich optimal erhöht!"
+meal_plan_3 = "Klasse, weiter so!"
+
+blood_pressure_1 = "Miss bitte Deinen Blutdruck!"
+blood_pressure_2 = "Trage bitte Deinen abendlichen Blutdruck ein!"
+blood_pressure_3 = "Klasse!"
+blood_pressure_4 = "Denk bitte daran auch morgens deinen Blutdruck zu messen!"
+blood_pressure_5 = "Denk in Zukunft daran Deinen regelmäßig Blutdruck zu messen."
+
+weight_1 = "Trag bitte Dein Gewicht ein."
+weight_2 = "Klasse!"
 
 denutritionized = [
     'DE_GLUT',

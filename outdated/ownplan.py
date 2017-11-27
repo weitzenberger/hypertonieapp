@@ -4,11 +4,12 @@
 
 """
 
-from database import SBLSDatabase
-from awsapi import Lambda, Cognito
-import params
 import constants as c
 import form
+import params
+from awsapi import Lambda, Cognito
+from outdated.database import SBLSDatabase
+
 
 def scan_bls(event, context):
     """Scans BLS for groceries to add to a meal plan

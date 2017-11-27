@@ -12,16 +12,17 @@ import params
 import constants as c
 import form
 import copy
-import database
+# import database
 import sys
 
+from dbmodel import MealDescription, MealComposition, StandardBLS, BLS, start_session
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
-db = database.SBLSDatabase()
+#db = database.SBLSDatabase()
+session = start_session()
 
-
-PATH = '/Users/l.we/Dropbox/Nathalie/Datenbank2017-10-16_LW.xlsx'
+PATH = '/Users/l.we/Dropbox/Exist Antrag/11_Datenbank/Rezept-DB/aktuelle Version/Datenbank.xlsx'
 
 workbook = xlrd.open_workbook(filename=PATH)
 
@@ -59,7 +60,8 @@ def update_sta_table(sheet=SHEET_0, switch_index_sheet=SWITCH_INDEX_SHEET_0):
             current_row[switch_index_sheet[col]] = sheet.cell_value(rowx=row, colx=col)
         if current_row[switch_index_sheet[0]]:
             current_row = form.convert_empty_string_to_None(current_row)
-            db.update_row(current_row, tbl=c.SQL_STA, delete_id='SBLS')
+            # db.update_row(current_row, tbl=c.SQL_STA, delete_id='SBLS')
+            insert_into_new(insertion=current_row, tbl=StandardBLS, session=session)
 
 def update_table(path, sheet_index, tbl, session):
     """
@@ -84,14 +86,6 @@ def update_table(path, sheet_index, tbl, session):
             element = tbl(**current_row)
             session.merge(element)
     session.commit()
-
-def update_all_table():
-    PATH = '/Users/l.we/Dropbox/Exist Antrag/11_Datenbank/Kategorien.xlsx'
-
-    update_table(path=PATH, sheet_index=4, tbl=c.SQL_NUTRIENTS)
-    update_table(path=PATH, sheet_index=2, tbl=c.SQL_HABITS)
-    update_table(path=PATH, sheet_index=1, tbl=c.SQL_INTOLERNACES)
-    update_table(path=PATH, sheet_index=0, tbl=c.SQL_ALLERGIES)
 
 
 def get_all_meal_des_from_xlsx():
@@ -139,17 +133,27 @@ def insert_meal_ing(meal_key, meal_ing):
     :param meal_ing:
     :return:
     """
-    delete_id = True
+    # delete_id = True
     for element in meal_ing:
-        db.insert_into(
-            meal_key=meal_key,
-            meal_ing=element,
-            tbl=c.SQL_MEAL_ING,
-            delete_id=delete_id
-        )
-        delete_id = False
+    #     db.insert_into(
+    #         meal_key=meal_key,
+    #         meal_ing=element,
+    #         tbl=c.SQL_MEAL_ING,
+    #         delete_id=delete_id
+    #     )
+    #     delete_id = False
+        element['MEAL_ID'] = meal_key
+        insert_into_new(insertion=element, tbl=MealComposition, session=session)
 
+def insert_into_new(insertion, tbl, session):
+    if not insertion.get(None, True):
+        insertion.pop(None)
+    print insertion
+    session.merge(tbl(**insertion))
+    session.commit()
 
+def select_from(session, tbl, ):
+    session.query(tbl)
 
 def characterize_and_insert_meal_des(meal_key, meal_des, meal_ing):
     nut_vals = {}
@@ -170,10 +174,12 @@ def characterize_and_insert_meal_des(meal_key, meal_des, meal_ing):
 
     for element in meal_ing:
         sbls = element['SBLS']
-        characterized_sbls = db.check_for_column_entries(
-            columns=params.habits + params.allergies + params.intolerances,
-            sbls="'" + sbls + "'"
-        )
+        print sbls
+        # characterized_sbls = db.check_for_column_entries(
+        #     columns=params.habits + params.allergies + params.intolerances,
+        #     sbls="'" + sbls + "'"
+        # )
+        characterized_sbls = session.query(StandardBLS).filter_by(SBLS=sbls).all()[0].as_dict()
         for key, val in characterized_sbls.iteritems():
             if key in params.allergies + params.intolerances:
                 if val:
@@ -181,14 +187,21 @@ def characterize_and_insert_meal_des(meal_key, meal_des, meal_ing):
             elif key in params.habits:
                 if not val:
                     characterized_meal[key] = None
-        nutrients = db.get_vals_by_sbls(params.nutrientList, c.SQL_BLS, None, sbls)
+        # nutrients = db.get_vals_by_sbls(params.nutrientList, c.SQL_BLS, None, sbls)
+        nutrients = session.query(BLS).filter_by(SBLS=sbls).all()[0].as_dict()
         for n in params.nutrientList:
-            nut_vals[n] += nutrients[sbls][n] * element['AMOUNT'] / 100.0
-
+            # nut_vals[n] += nutrients[sbls][n] * element['AMOUNT'] / 100.0
+            nut_vals[n] += nutrients[n] * element['AMOUNT'] / 100.0
+    if '_L_' in meal_key:
+        insertion['DE_LAKT'] = True
+    if '_G_' in meal_key:
+        insertion['DE_GLU'] = True
     insertion.update(nut_vals)
     insertion.update(characterized_meal)
     insertion.update(meal_des)
-    db.insert_into(meal_key, insertion, delete_id=True)
+    insertion['MEAL_ID'] = meal_key
+    # db.insert_into(meal_key, insertion, delete_id=True)
+    insert_into_new(insertion=insertion, tbl=MealDescription, session=session)
     return dict(insertion=insertion, meal_ing=meal_ing)
 
 
@@ -206,50 +219,58 @@ def create_and_insert_de_meal(meal_key, meal_des, meal_ing, de_glut=False, de_la
     de_meal_ing = []
     for element in meal_ing:
         if de_possible:
-            characterized_sbls = db.check_for_column_entries(
-                columns=params.habits + params.allergies + params.intolerances + ['PENDANT'],
-                sbls="'" + element['SBLS'] + "'"
-            )
+            # characterized_sbls = db.check_for_column_entries(
+            #     columns=params.habits + params.allergies + params.intolerances + ['PENDANT'],
+            #     sbls="'" + element['SBLS'] + "'"
+            # )
+            characterized_sbls = session.query(StandardBLS).filter_by(SBLS=element['SBLS']).all()[0].as_dict()
             current_amount = copy.deepcopy(element['AMOUNT'])
             current_pendant = copy.deepcopy(characterized_sbls['PENDANT'])
             current_sbls = copy.deepcopy(element['SBLS'])
+            current_name = copy.deepcopy(element['NAME'])
 
             if de_lakt and de_glut:
                 if characterized_sbls['IN_LAKT'] or characterized_sbls['IN_GLUT']:
                     if characterized_sbls['PENDANT']:
                         de_meal_ing.append({'AMOUNT': current_amount,
-                                            'SBLS': current_pendant
+                                            'SBLS': current_pendant,
+                                            'NAME': current_name
                                             })
                     else:
                         de_possible = False
                 else:
                     de_meal_ing.append({'AMOUNT': current_amount,
-                                        'SBLS': current_sbls
+                                        'SBLS': current_sbls,
+                                        'NAME': current_name
                                         })
             elif de_lakt:
                 if characterized_sbls['IN_LAKT']:
                     if characterized_sbls['PENDANT']:
                         de_meal_ing.append({'AMOUNT': current_amount,
-                                            'SBLS': current_pendant
+                                            'SBLS': current_pendant,
+                                            'NAME': current_name
                                             })
                     else:
                         de_possible = False
                 else:
                     de_meal_ing.append({'AMOUNT': current_amount,
-                                        'SBLS': current_sbls
+                                        'SBLS': current_sbls,
+                                        'NAME': current_name
                                         })
             elif de_glut:
                 if characterized_sbls['IN_GLUT']:
                     if characterized_sbls['PENDANT']:
                         de_meal_ing.append({'AMOUNT': current_amount,
-                                            'SBLS': current_pendant
+                                            'SBLS': current_pendant,
+                                            'NAME': current_name
                                             })
                     else:
                         de_possible = False
 
                 else:
                     de_meal_ing.append({'AMOUNT': current_amount,
-                                        'SBLS': current_sbls
+                                        'SBLS': current_sbls,
+                                        'NAME': current_name
                                         })
 
     if de_possible:

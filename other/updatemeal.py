@@ -38,7 +38,7 @@ all_meal_des = updater.get_all_meal_des_from_xlsx()
 all_meal_ing = updater.get_all_meals_ingredients_from_xlsx()
 
 for meal_key, meal_des in all_meal_des.iteritems():
-    try:
+
         response = updater.characterize_and_insert_meal_des(meal_key, meal_des, all_meal_ing[meal_key])
 
         if response['insertion']['IN_GLUT']:
@@ -53,8 +53,7 @@ for meal_key, meal_des in all_meal_des.iteritems():
             kwargs = updater.create_and_insert_de_meal(meal_key, meal_des, response['meal_ing'], de_lakt=True, de_glut=True)
             if kwargs:
                 ret = updater.characterize_and_insert_meal_des(**kwargs)
-    except:
-        traceback.print_exc()
+
 
 
 

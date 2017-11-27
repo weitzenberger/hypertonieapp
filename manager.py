@@ -10,9 +10,11 @@ a new plan or modify existing plans.
 @author: L.We
 """
 
-import pulp
 import abc
 import traceback
+import pprint
+
+import pulp
 
 import form
 import constants as c
@@ -20,10 +22,14 @@ import params
 import patients
 import awsapi
 from optimizationtools import Modeller, Evaluator
-from database import SBLSDatabase
+# from database import SBLSDatabase
+from dbmodel import mealdescription, engine
+from sqlalchemy.sql.expression import func, select, and_
 
-switch_patient = {'Hypertension': patients.HypertensionPatient,
-                  'DGE': patients.DGEPatient}
+switch_patient = {
+    'Hypertension': patients.HypertensionPatient,
+    'DGE': patients.DGEPatient
+}
 
 
 class ModelManager(object):
@@ -53,9 +59,10 @@ class ModelManager(object):
         self.cbcLog = 1 if cbc_log else 0
         self.patient = patient
         self.strongBranching = strong_branching
-        self.userDataStore = awsapi.DynamoNutrition()
+        self.userNutritionStore = awsapi.DynamoNutrition()
+        self.userDataStore = awsapi.DynamoUserData()
         self.problem = pulp.LpProblem(name=self.probType)
-        self.dB = SBLSDatabase()
+        # self.dB = SBLSDatabase()
         self.meals = {}
         self.managerLog = {}
         self.exclusions = self._exclusions()
@@ -76,43 +83,63 @@ class ModelManager(object):
         self.splitted_macro_bounds = None
 
     def set_meal_by_container(self):
+        conn = engine.connect()
         cognito_handler = awsapi.Cognito()
 
         data_sets = cognito_handler.get_records_as_dict(
             dataset=c.DATASET_VITAL,
             cognito_id=self.cognitoId
         )
-        print 'this is container cat'
-        print data_sets['containerCategory']
         try:
             container_category = data_sets['containerCategory']
         except:
-            container_category = {u'BF': [{u'preference': u'obligatory', u'key': u'BREAD'}, {u'preference': u'unwanted', u'key': u'EGGS'}], u'LU': [{u'preference': u'obligatory', u'key': u'FRUIT'}]}
+            container_category = {
+                u'BF': [{u'preference': u'obligatory', u'key': u'BREAD'}, {u'preference': u'unwanted', u'key': u'EGGS'}], u'LU': [{u'preference': u'obligatory', u'key': u'FRUIT'}]}
 
+        container_category = {}
+
+        def get_meals(num, conditions, container_key):
+            switch_cond = {
+                'BF': [],  # TODO: extra Conditions einfügen für container??
+                'DI': [],
+                'LU': [],
+                'SN': []
+            }
+            conditions += switch_cond[container_key]
+            s = select([mealdescription]).where(and_(*conditions)).order_by(func.rand()).limit(num)
+            rows = conn.execute(s)
+            d = {}
+            for row in rows:
+                dict_ = dict(zip(row.keys(), row.values()))
+                key = dict_.pop('MEAL_ID')
+                d[key] = dict_
+            return d
 
         for container_key, container_content in container_category.iteritems():
             self.meals[container_key] = []
             meal_type_exclusion = []
             for element in container_content:
                 if element['preference'] == 'obligatory':
-                    preference_condition = [element['key'] + ' = 1']
-                    item = {'preference': 'obligatory',
-                            'meals': self.dB.get_random_meals_for_container_version(
-                                num=8,
-                                container=container_key,
-                                splitted_needs=self.splitted_macro_bounds,
-                                conditions=self.exclusions + preference_condition
-                            )}
+                    preference_condition = [mealdescription.c.__getattr__(element['key']) == True]
+                    item = {
+                        'preference': 'obligatory',
+                        'meals': get_meals(
+                            num=12,
+                            conditions=self.exclusions + preference_condition,
+                            container_key=container_key
+                        )
+                    }
                     self.meals[container_key].append(item)
                 elif element['preference'] == 'unwanted':
-                    meal_type_exclusion.append(element['key'] + ' IS NULL')
-            item = {'preference': 'optional',
-                    'meals': self.dB.get_random_meals_for_container_version(
-                        num=20,
-                        container=container_key,
-                        splitted_needs=self.splitted_macro_bounds,
-                        conditions=self.exclusions + meal_type_exclusion
-                    )}
+                    meal_type_exclusion += [mealdescription.c.__getattr__(element['key']) == None]
+            item = {
+                'preference': 'optional',
+                'meals': get_meals(
+                    num=12,
+                    conditions=self.exclusions + meal_type_exclusion,
+                    container_key=container_key
+                )
+            }
             self.meals[container_key].append(item)
 
         rest_container = {'BF', 'LU', 'DI', 'SN'} - set(container_category.keys())
@@ -120,13 +147,57 @@ class ModelManager(object):
             self.meals[container_key] = []
             item = {
                 'preference': 'optional',
-                'meals': self.dB.get_random_meals_for_container_version(
+                'meals': get_meals(
                     num=20,
-                    container=container_key,
-                    splitted_needs=self.splitted_macro_bounds,
+                    container_key=container_key,
                     conditions=self.exclusions
-                )}
+                )
+            }
             self.meals[container_key].append(item)
+
+        # pprint.pprint(self.meals)
+
+
+        #
+        # for container_key, container_content in container_category.iteritems():
+        #     self.meals[container_key] = []
+        #     meal_type_exclusion = []
+        #     for element in container_content:
+        #         if element['preference'] == 'obligatory':
+        #             preference_condition = [element['key'] + ' = 1']
+        #             item = {'preference': 'obligatory',
+        #                     'meals': self.dB.get_random_meals_for_container_version(
+        #                         num=8,
+        #                         container=container_key,
+        #                         splitted_needs=self.splitted_macro_bounds,
+        #                         conditions=self.exclusions + preference_condition
+        #                     )}
+        #             self.meals[container_key].append(item)
+        #         elif element['preference'] == 'unwanted':
+        #             meal_type_exclusion.append(element['key'] + ' IS NULL')
+        #     item = {'preference': 'optional',
+        #             'meals': self.dB.get_random_meals_for_container_version(
+        #                 num=20,
+        #                 container=container_key,
+        #                 splitted_needs=self.splitted_macro_bounds,
+        #                 conditions=self.exclusions + meal_type_exclusion
+        #             )}
+        #     self.meals[container_key].append(item)
+        #
+        #
+        # rest_container = {'BF', 'LU', 'DI', 'SN'} - set(container_category.keys())
+        # for container_key in rest_container:
+        #     self.meals[container_key] = []
+        #     item = {
+        #         'preference': 'optional',
+        #         'meals': self.dB.get_random_meals_for_container_version(
+        #             num=20,
+        #             container=container_key,
+        #             splitted_needs=self.splitted_macro_bounds,
+        #             conditions=self.exclusions
+        #         )
+        #     }
+        #     self.meals[container_key].append(item)
 
 
 
@@ -142,21 +213,34 @@ class ModelManager(object):
         cognito_handler = awsapi.Cognito()
 
         data_sets = cognito_handler.get_records_as_dict(dataset=c.DATASET_VITAL, cognito_id=self.cognitoId)
+        # data_sets['intolerances'].append('IN_LAKT')
+        # try:
+        # ls_intol = [element.join(['[', ']']) for element in data_sets['intolerances']]
+        # ls_intol = [element + " IS NULL" for element in ls_intol]
+        ls_cond_intol = [mealdescription.c.__getattr__(element) == None for element in data_sets['intolerances']]
 
-        try:
-            ls_intol = [element.join(['[', ']']) for element in data_sets['intolerances']]
-            ls_intol = [element + " IS NULL" for element in ls_intol]
+        if not 'IN_LAKT' in data_sets['intolerances']:
+            ls_cond_intol.append(mealdescription.c.DE_LAKT == None)
+        if not 'IN_GLU' in data_sets['intolerances']:
+            ls_cond_intol.append(mealdescription.c.DE_GLU == None)
 
 
-            ls_al = [element.join(['[', ']']) for element in data_sets['allergies']]
-            ls_al = [element + " IS NULL" for element in ls_al]
+        # ls_al = [element.join(['[', ']']) for element in data_sets['allergies']]
+        # ls_al = [element + " IS NULL" for element in ls_al]
+        ls_cond_al = [mealdescription.c.__getattr__(element) == None for element in data_sets['allergies']]
 
-            ls_hab = [element.join(['[', ']']) for element in data_sets['habit']]
-            ls_hab = [element + " = 1" for element in ls_hab]
-        except:
-            pass
 
-        return [u'[VEGGIE] = 1', u'[AL_CRUSTACEAN] IS NULL', u'[AL_PEANUTS] IS NULL'] #ls_hab + ls_al + ls_intol
+        # ls_hab = [element.join(['[', ']']) for element in data_sets['habit']]
+        # ls_hab = [element + " = 1" for element in ls_hab]
+        ls_cond_hab = [mealdescription.c.__getattr__(element) == True for element in data_sets['habits']]
+        print data_sets
+
+        return []  # ls_cond_al + ls_cond_hab + ls_cond_intol
+        # except:
+        #     print 'heyyy'
+
+
+        # return [u'[VEGGIE] = 1', u'[AL_CRUSTACEAN] IS NULL', u'[AL_PEANUTS] IS NULL'] #ls_hab + ls_al + ls_intol
 
 
 
@@ -184,18 +268,18 @@ class RegenerateManager(ModelManager):
 
         :return: self
         """
-        self.boundsForWeek = self.userDataStore.get_reduced_bounds_for_week(
+        self.boundsForWeek = self.userNutritionStore.get_reduced_bounds_for_week(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             redLb=0.8
         )
-        self.splittedNeeds = self.userDataStore.get_from_nutrients_for_day(
+        self.splittedNeeds = self.userNutritionStore.get_from_nutrients_for_day(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             top_level=c.SPLITTED_NEEDS
         )
         self._set_splitted_macro_bounds()
-        self.needs = self.userDataStore.get_from_nutrients_for_day(
+        self.needs = self.userNutritionStore.get_from_nutrients_for_day(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             top_level=c.NUTRIENT_NEED_FOR_DAY
@@ -205,19 +289,19 @@ class RegenerateManager(ModelManager):
             days=[self.event['body'][c.DATE]],
             bounds=self.boundsForWeek)
 
-        element = self.userDataStore.get_from_nutrients_for_day(
+        element = self.userNutritionStore.get_from_nutrients_for_day(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             top_level=c.PLAN,
             second_level=self.event['body']['container'],
             third_level=self.event['body']['meal_key']
         )
-        add_day = self.userDataStore.get_from_nutrients_for_day(
+        add_day = self.userNutritionStore.get_from_nutrients_for_day(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             top_level=c.NUTRIENTS_FOR_DAY
         )
-        add_week = self.userDataStore.get_from_nutrients_for_week(
+        add_week = self.userNutritionStore.get_from_nutrients_for_week(
             unique_id=self.cognitoId,
             date=self.event['body'][c.DATE],
             toplevel=c.NUTRIENTS_FOR_WEEK
@@ -226,12 +310,12 @@ class RegenerateManager(ModelManager):
         self.addDay = {}
 
         for n in params.nutrientList:
-            print add_week
+            # print add_week
             self.addWeek[n] = add_week[n]['VAL'] / params.switch_unit_inv[add_week[n]['UNIT']] / params.BLS2gramm[n] \
                              - element[n]['VAL'] / params.switch_unit_inv[element[n]['UNIT']] / params.BLS2gramm[n]
             self.addDay[n] = add_day[n]['VAL'] / params.switch_unit_inv[add_day[n]['UNIT']] / params.BLS2gramm[n] \
                              - element[n]['VAL'] / params.switch_unit_inv[add_day[n]['UNIT']] / params.BLS2gramm[n]
-            print self.addWeek
+            # print self.addWeek
 
         return self
 
@@ -272,13 +356,13 @@ class RegenerateManager(ModelManager):
             )
             nutrients = evaluator.get_all_nutrients()
 
-            self.userDataStore.delete_element(
+            self.userNutritionStore.delete_element(
                 unique_id=self.cognitoId,
                 date=self.event['body'][c.DATE],
                 container=self.event['body']['container'],
                 key=self.event['body']['meal_key']
             )
-            self.userDataStore.update_container(
+            self.userNutritionStore.update_container(
                 unique_id=self.cognitoId,
                 nutrients=nutrients
             )
@@ -326,12 +410,12 @@ class GenerateManager(ModelManager):
 
         days = form.get_remaining_days(thisweek=self.event['thisweek'])
         self.actualPatient = switch_patient[self.patient](
-            birthday=data_set_vital['age'],
+            birthday=data_set_vital['birthday'],
             height=data_set_vital['height'],
             weight=data_set_vital['weight'],
             pal=data_set_vital['pal'],
             sex=data_set_vital['gender'],
-            db=self.dB,
+            db=None,  # TODO: db entfernen
             days=days
         )
         self._set_splitted_macro_bounds()
@@ -361,6 +445,7 @@ class GenerateManager(ModelManager):
         traceback.print_exc()
         self.modeller.set_global(needs=self.actualPatient.macro_bounds)
 
+
         self.problem.solve(
             solver=pulp.PULP_CBC_CMD(
                 maxSeconds=self.timeOut,
@@ -369,42 +454,47 @@ class GenerateManager(ModelManager):
                 strong=self.strongBranching
             )
         )
-
+        print 'solved'
 
         if pulp.LpStatus[self.problem.status] == 'Optimal':
             cognito_id = self.cognitoId
-            cognito_id = "eu-central-1:f0b34d2c-f014-4966-b851-9b088a3218f9"
-            cognito_id = 'TEST'
+            # Optimalcognito_id = "eu-central-1:0265ffa7-f55b-4591-9cd8-c329f076fe0a"
+            # # cognito_id = 'TEST_ID'
             self.eval = Evaluator(
                 model=self.problem,
                 meals=self.modeller.all_meals,
                 variable=self.modeller.variable,
-                db=self.dB
+                db=None  # TODO: DB entfernen
             )
             self.nutrients = self.eval.get_all_nutrients()
-            self.userDataStore.write_to_nutrients_for_day(
-                plan=self.nutrients.plan,
+            self.userNutritionStore.write_to_nutrients_for_day(
+                plan=self.nutrients.nutrients_for_meal,
                 unique_id=cognito_id,
                 status=pulp.LpStatus[self.problem.status],
-                nutForDay=self.nutrients.nutrientsForDay,
-                nutForMeal=self.nutrients.nutrientsForMeal,
+                nut_for_day=self.nutrients.nutrients_for_day,
+                nut_for_container=self.nutrients.nutrients_for_container,
+                meals_checked=self.nutrients.meals_checked,
                 splittedNeeds=self.actualPatient.splitted_macro_bounds,
                 nutNeedsForDay=self.actualPatient.macro_bounds
             )
-
-            self.userDataStore.write_to_nutrients_for_week(
+            self.userNutritionStore.write_to_nutrients_for_week(
                 unique_id=cognito_id,
-                nutForWeek=self.nutrients.nutrientsForWeek,
+                nut_for_week=self.nutrients.nutrients_for_week,
                 boundsForWeek=self.actualPatient.micro_bounds,
                 time=self.problem.solutionTime
+            )
+            self.userDataStore.set_shopping_list(
+                unique_id=cognito_id,
+                shoppinglist=self.nutrients.shopping_list
             )
         else:
             print 'hello'
             print self.problem.fixObjective
             print pulp.LpStatus[self.problem.status]
+            print self.problem.solutionTime
             raise RuntimeError('LP Problem could not be solved. No plan is stored for this user.')
 
-        self.dB.cur.close()
+        # self.dB.cur.close()
         self.managerLog = dict(LpStatus=pulp.LpStatus[self.problem.status],
                                Time=self.problem.solutionTime)
         return None

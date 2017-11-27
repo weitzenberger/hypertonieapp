@@ -17,6 +17,10 @@ import pulp
 import constants as c
 import form
 import params
+import array
+from dbmodel import MealComposition, BLS, engine
+from sqlalchemy.sql.expression import select
+import pprint
 
 
 class StandardConstraint(object):
@@ -42,14 +46,8 @@ class StandardConstraint(object):
         """
         self.name = name
         self.sum = sum
-        if isinstance(ub, basestring):
-            self.ub = None
-        else:
-            self.ub = ub
-        if isinstance(lb, basestring):
-            self.lb = None
-        else:
-            self.lb = lb
+        self.ub = ub
+        self.lb = lb
         self.eq = eq
         self.tol = tol
         self.constraintDict = {}
@@ -135,6 +133,7 @@ class Modeller(object):
         self.crossCounter = self._tree()
         self.sumGlobal = {}
         self.all_meals = self._tree()
+        self.all_meals_evo = self._tree()
 
     def _join(self, *names):
         """Joins names with underscores for constraint
@@ -364,6 +363,59 @@ class Modeller(object):
                         # constraintWeek = StandardConstraint('TOT' + '_WM_' + 'GCAL', sum=sumWeek, ub=3)
                         # constraintWeek.add_to_model(model=self.model)
 
+    def set_meals_evo(self, meals, needs, add_meal=None):
+        gcal = array.array('f')
+        index = 0
+        for day in self.days:
+            for container_key, container_content in meals.iteritems():
+                for item in container_content:
+                    for meal_key, meal_content in item['meals'].iteritems():
+                        if not self.all_meals_evo[day][container_key].get(meal_key):
+
+                            self.all_meals_evo[day][container_key][meal_key] = meal_content
+                            self.all_meals_evo[day][container_key][meal_key]['index'] = index
+                            index += 1
+                            gcal.append(meal_content['GCAL'])
+
+
+        for container_key in meals.keys():
+            self._set_local_and_global_sum_evo(
+                container_content=meals[container_key],
+                needs=needs,
+                container_key=container_key,
+                add_meal=add_meal,
+                local_nut=None
+            )
+        return self.all_meals_evo, self.bounds
+
+    def _set_local_and_global_sum_evo(self, container_key, container_content, needs, add_meal, local_nut):
+        self.all_meals[container_key] = {}
+        local_nut = 'GCAL'
+
+        for item in container_content:
+            self.all_meals[container_key].update(item['meals'])
+
+        for day in self.days:
+            for meal_key, index in self.all_meals_evo[day][container_key].iteritems():
+                self.all_meals[container_key][meal_key]['index'] = index
+                if n == local_nut:
+                    sum_local = current_sum_for_nutrient + (add_meal[n] if add_meal else [])
+
+                self.sumGlobal.setdefault(day, {}).setdefault(n, []).append(current_sum_for_nutrient)
+
+                if sum_local:
+                    if needs.get(container_key):
+                        constraint = StandardConstraint(
+                            name=self._join(day, container_key, local_nut),
+                            sum=sum_local,
+                            ub=needs[container_key][local_nut][c.UB],
+                            lb=needs[container_key][local_nut][c.LB]
+                        )
+
+                        constraint.add_to_model(model=self.model)
+
+
+
 
 class Evaluator(object):
     """Evaluator formats data to store it in DDB
@@ -373,23 +425,43 @@ class Evaluator(object):
         self.model = model
         self.meals = meals
         self.variable = variable
-        self._tree = lambda: collections.defaultdict(self._tree)
         self._dB = db
-        self.assignMeal = {'BF': 'BF',
-                           'WM': 'LU',
-                           'PL': 'DI',
-                           'SW': 'DI',
-                           'SA': 'DI',
-                           'SM': 'SN',
-                           'SN': 'SN'}
-        self.switchUnit = {nut: params.BLS2gramm[nut] * pot for nut, pot in params.assignUnit.iteritems()}
+        self.switchUnit = {
+            nut: params.BLS2gramm[nut] * pot for nut, pot in params.assignUnit.iteritems()
+            }
+        self._tree = lambda: collections.defaultdict(self._tree)
         self.nutrientsForMeal = self._tree()
         self.nutrientsForDay = self._tree()
         self.nutrientsForWeek = self._tree()
         self.nutrientsForContainer = self._tree()
         self.plan = self._tree()
         self.shoppinglist = self._tree()
+        self.meals_checked = self._tree()
 
+    def get_meal_vals(self, meal_key):
+        conn = engine.connect()
+        s = select([MealComposition]).where(MealComposition.MEAL_ID == meal_key)
+        rows = conn.execute(s)
+        d = {}
+        for row in rows:
+            dict_ = dict(zip(row.keys(), row.values()))
+            sbls = dict_.pop('SBLS')
+            amount = dict_['AMOUNT']
+            d[sbls] = self.get_vals_by_sbls(sbls, amount)
+            d[sbls]['AMOUNT'] = float(dict_['AMOUNT'])
+            d[sbls]['NAME'] = dict_['NAME']
+
+        return d
+
+    def get_vals_by_sbls(self, sbls, amount):
+        conn = engine.connect()
+        s = select([BLS.__getattribute__(BLS, n) for n in params.nutrientList + ['ST']]).where(BLS.SBLS == sbls)
+        rows = conn.execute(s)
+        for row in rows:
+            d = dict(zip(row.keys(), row.values()))
+            for n in params.nutrientList:
+                d[n] *= float(amount) / 100.0
+        return d
 
     def evaluate_meals_for_container(self):
         for day, day_plan in self.variable.iteritems():
@@ -399,21 +471,20 @@ class Evaluator(object):
                         current_key_element = self.meals[container_key][meal_key]
                         self.plan[day][container_key][meal_key]['ST'] = self.meals[container_key][meal_key]['NAME']
                         self.plan[day][container_key][meal_key]['varValue'] = variable.varValue
-                        self.plan[day][container_key][meal_key]['ingredients'].update(self._dB.get_meal_vals(meal_key))
+                        self.plan[day][container_key][meal_key]['ingredients'].update(self.get_meal_vals(meal_key))
+                        self.meals_checked[day][container_key][meal_key] = False
 
                         for sbls_key, sbls_value in self.plan[day][container_key][meal_key]['ingredients'].iteritems():
-                            current_portion = sbls_value['portion']
-                            self.shoppinglist[sbls_key].setdefault('portion', 0.0)
-                            self.shoppinglist[sbls_key]['portion'] += current_portion
-                            self.shoppinglist['ingredients'] = sbls_value
-
-                            for n in params.nutrientList:
-                                sbls_value[n] *= current_portion / 100.0
-
+                            self.shoppinglist[day][sbls_key].setdefault('VAL', 0.0)
+                            self.shoppinglist[day][sbls_key].setdefault('CHECKED', False)
+                            self.shoppinglist[day][sbls_key].setdefault('ST', sbls_value['ST'])
+                            self.shoppinglist[day][sbls_key].setdefault('UNIT', 'g')  # TODO: Unit aus STA table einfügen
+                            self.shoppinglist[day][sbls_key]['VAL'] += sbls_value['AMOUNT']
 
                         for n in params.nutrientList:
-                            self.plan[day][container_key][meal_key][n]['UNIT'] = params.unit[n]
-                            self.plan[day][container_key][meal_key][n]['VAL'] = current_key_element[n] * self.switchUnit[n]
+                            self.plan[day][container_key][meal_key]['nutrients'][n]['UNIT'] = params.unit[n]
+                            self.plan[day][container_key][meal_key]['nutrients'][n]['VAL'] = \
+                                current_key_element[n] * self.switchUnit[n]
 
     @form.time_it
     def evaluate_container(self):
@@ -423,15 +494,18 @@ class Evaluator(object):
                     for n in params.nutrientList:
                         self.nutrientsForContainer[day][container_key][n].setdefault('VAL', 0.0)
                         self.nutrientsForContainer[day][container_key][n].setdefault('UNIT', params.unit[n])
-                        self.nutrientsForContainer[day][container_key][n]['VAL'] += self.plan[day][container_key][meal_key][n]['VAL']
+                        self.nutrientsForContainer[day][container_key][n]['VAL'] += \
+                            self.plan[day][container_key][meal_key]['nutrients'][n]['VAL']
 
                         self.nutrientsForDay[day][n].setdefault('VAL', 0.0)
                         self.nutrientsForDay[day][n].setdefault('UNIT', params.unit[n])
-                        self.nutrientsForDay[day][n]['VAL'] += self.plan[day][container_key][meal_key][n]['VAL']
+                        self.nutrientsForDay[day][n]['VAL'] += \
+                            self.plan[day][container_key][meal_key]['nutrients'][n]['VAL']
 
                         self.nutrientsForWeek[form.get_week_by_date(day)][n].setdefault('VAL', 0.0)
                         self.nutrientsForWeek[form.get_week_by_date(day)][n].setdefault('UNIT', params.unit[n])
-                        self.nutrientsForWeek[form.get_week_by_date(day)][n]['VAL'] += self.plan[day][container_key][meal_key][n]['VAL']
+                        self.nutrientsForWeek[form.get_week_by_date(day)][n]['VAL'] += \
+                            self.plan[day][container_key][meal_key]['nutrients'][n]['VAL']
 
 
 
@@ -461,13 +535,22 @@ class Evaluator(object):
         self.evaluate_container()
 
         Nutrients = collections.namedtuple('nutrients',
-                                           ['nutrientsForMeal', 'nutrientsForDay', 'nutrientsForWeek', 'plan'])
+                                           ['nutrients_for_container',
+                                            'nutrients_for_day',
+                                            'nutrients_for_week',
+                                            'nutrients_for_meal',
+                                            'meals_checked',
+                                            'shopping_list'
+                                            ]
+                                           )
 
         return Nutrients(
-            nutrientsForMeal=dict(self.nutrientsForContainer),
-            nutrientsForDay=dict(self.nutrientsForDay),
-            nutrientsForWeek=dict(self.nutrientsForWeek),
-            plan=dict(self.plan)
+            nutrients_for_container=dict(self.nutrientsForContainer),
+            nutrients_for_day=dict(self.nutrientsForDay),
+            nutrients_for_week=dict(self.nutrientsForWeek),
+            nutrients_for_meal=dict(self.plan),
+            meals_checked=self.meals_checked,
+            shopping_list=self.shoppinglist
         )
 
     def pop_vars_not_in_plan(self):
@@ -489,6 +572,10 @@ class Evaluator(object):
                         if var.varValue == 0:
                             vars_not_in_plan.setdefault(day, {}).setdefault(mealKey, {})[key] = dayplan[mealKey].pop(key)
         return vars_not_in_plan
+
+if __name__ == '__main__':
+    eval = Evaluator(1,2,3,4)
+    pprint.pprint(eval.get_meal_vals('M0001'))
 
 
 

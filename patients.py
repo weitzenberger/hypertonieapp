@@ -14,6 +14,10 @@ import abc
 import constants as c
 import form
 import params
+from sqlalchemy.sql.expression import select, and_
+from dbmodel import HypertensionRecommendation, DGERecommendation, engine
+
+import pprint
 
 
 class Patient(object):
@@ -179,6 +183,7 @@ class HypertensionPatient(Patient):
     def __init__(self, height, weight, birthday, pal, sex, db, days):
         self._dB = db
         super(HypertensionPatient, self).__init__(height, weight, birthday, pal, sex, days)
+        self.recommendation = HypertensionRecommendation
 
     @property
     def age(self):
@@ -222,19 +227,19 @@ class HypertensionPatient(Patient):
             'UNIT': 'mg'
         }
         f182_bounds = {
-            c.LB: 'None',
-            c.UB: self.cal_need * params.part['F182'] / params.calPerMG['ZF'] * 10,
+            c.LB: None,
+            c.UB: self.cal_need * params.part['F182'] / params.calPerMG['ZF'] * 2,
             'UNIT': 'mg'
         }
         f183_bounds = {
-            c.LB: self.cal_need * params.part['F183'] / params.calPerMG['ZF'] / 10,
-            c.UB: 'None',
+            c.LB: self.cal_need * params.part['F183'] / params.calPerMG['ZF'] / 2,
+            c.UB: None,
             'UNIT': 'mg'
 
         }
         fiber_bounds = {
             c.LB: 3e1,
-            c.UB: 'None',
+            c.UB: None,
             'UNIT': 'mg'
 
         }
@@ -252,29 +257,50 @@ class HypertensionPatient(Patient):
         return dict(GCAL=self.cal_bounds,
                     ZF=fat_bounds,
                     ZE=prot_bounds,
-                    F182=f182_bounds,
-                    F183=f183_bounds,
+                   # F182=f182_bounds,
+                   # F183=f183_bounds,
                     ZB=fiber_bounds,
                     ZK=ch_bounds)
 
     @property
     def micro_bounds(self):
-        bounds = params.bounds.copy()
-        a = self._dB.get_dge(age=self.age, sex=self.sex)
-        bounds.update(a)
+        # bounds = params.bounds.copy()
+        #
+        # a = self._dB.get_dge(age=self.age, sex=self.sex)
+        # bounds.update(a)
 
+        conn = engine.connect()
+        s = select([self.recommendation.LB,
+                    self.recommendation.UB,
+                    self.recommendation.NUTRIENT,
+                    self.recommendation.UNIT]
+                   ).where(
+                and_(
+                    self.age >= self.recommendation.AGE_LB,
+                    self.recommendation.AGE_UB > self.age,
+                    self.sex == self.recommendation.SEX,
+                    self.recommendation.NUTRIENT.in_(params.nutrientsMicroList + ['ZB'])
+                )
+            )
+        rows = conn.execute(s)
+        bounds = {}
+        for row in rows:
+            dict_ = dict(zip(row.keys(), row.values()))
+            key = dict_.pop('NUTRIENT')
+            bounds[key] = dict_
+        pprint.pprint(bounds)
         boundsForWeek = {}
         if isinstance(self.days, basestring):
             raise TypeError('days must be of type list not ' + type(self.days))
         length = len(self.days)
         for i in bounds.iterkeys():
-            boundsForWeek.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length * 0.2)
-                                                     if bounds[i][c.LB] else 'None')
-            boundsForWeek.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length * 5)
-                                                     if bounds[i][c.UB] else 'None')
+            boundsForWeek.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length * 1)
+                                                     if bounds[i][c.LB] else None)
+            boundsForWeek.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length * 1)
+                                                     if bounds[i][c.UB] else None)
             boundsForWeek.setdefault(i, {})['UNIT'] = bounds[i]['UNIT']
 
-        boundsForWeek['VA']['UB'] *= 10
+        # boundsForWeek['VA']['UB'] *= 10
 
         return boundsForWeek
 
@@ -296,15 +322,23 @@ class HypertensionPatient(Patient):
         fat_need_cm = self._get_average(self.macro_bounds['ZF']) * params.split['PL']
         prot_need_cm = self._get_average(self.macro_bounds['ZE']) * params.split['PL']
 
-        ret_dict = dict(BF=dict(GCAL=self._set_bounds_by_tolerance(cal_need_bf),
-                                ZF=self._set_bounds_by_tolerance(fat_need_bf),
-                                ZE=self._set_bounds_by_tolerance(prot_need_bf)),
-                        LU=dict(GCAL=self._set_bounds_by_tolerance(cal_need_wm),
-                                ZF=self._set_bounds_by_tolerance(fat_need_wm),
-                                ZE=self._set_bounds_by_tolerance(prot_need_wm)),
-                        DI=dict(GCAL=self._set_bounds_by_tolerance(cal_need_cm),
-                                ZF=self._set_bounds_by_tolerance(fat_need_cm),
-                                ZE=self._set_bounds_by_tolerance(prot_need_cm)))
+        ret_dict = dict(
+            BF=dict(
+                GCAL=self._set_bounds_by_tolerance(cal_need_bf),
+                ZF=self._set_bounds_by_tolerance(fat_need_bf),
+                ZE=self._set_bounds_by_tolerance(prot_need_bf)
+            ),
+            LU=dict(
+                GCAL=self._set_bounds_by_tolerance(cal_need_wm),
+                ZF=self._set_bounds_by_tolerance(fat_need_wm),
+                ZE=self._set_bounds_by_tolerance(prot_need_wm)
+            ),
+            DI=dict(
+                GCAL=self._set_bounds_by_tolerance(cal_need_cm),
+                ZF=self._set_bounds_by_tolerance(fat_need_cm),
+                ZE=self._set_bounds_by_tolerance(prot_need_cm)
+            )
+        )
 
         return ret_dict
 
@@ -324,6 +358,7 @@ class DGEPatient(HypertensionPatient):
             db=db,
             days=days
         )
+        self.recommendation = DGERecommendation
 
     @property
     def age(self):
@@ -335,7 +370,3 @@ class DGEPatient(HypertensionPatient):
         if age < 19.0:
             raise ValueError('Customer must be of age 19 or older')
         return age
-
-    @property
-    def micro_bounds(self):
-        pass

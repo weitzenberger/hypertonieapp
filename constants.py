@@ -19,9 +19,13 @@ TABLE_WEIGHT = "Weight"
 TABLE_SHOPPING_LIST = "ShoppingList"
 
 # top level attributes
+NUTRIENTS_FOR_WEEK_CHECKED = 'nutrients_for_plan_checked'
+NUTRIENTS_FOR_DAY_CHECKED = 'nutrients_for_plan_checked'
 NUTRIENTS_FOR_WEEK = 'nutrients_for_plan'
 NUTRIENTS_FOR_DAY = 'nutrients_for_plan'
+NUTRIENTS_FOR_CONTAINER = 'nutrients_for_container'
 NUTRIENTS_FOR_MEAL = 'nutrients_for_meal'
+PLAN_CHECKED = 'plan_checked'
 UNIQUE_IDENTIFIER = 'unique_id'  # partition key (hash)
 
 LAST_LOGIN = 'last_login'
@@ -29,7 +33,7 @@ LAST_EVALUATED_WEEK = 'last_evaluated_week'
 # top level attributes
 BOUNDS_FOR_WEEK = 'bounds'
 NUTRIENT_NEED_FOR_DAY = 'needs_for_day'
-PLAN = 'plan'
+PLAN = 'nutrients_for_meal'
 STATUS = 'status'
 DATE = 'date'
 WEEK = 'week'
@@ -80,10 +84,9 @@ OLD_VALUE = 'oldValue'
 NEW_VALUE = 'newValue'
 VALUE = 'Value'
 
-DATASET_VITAL = 'userInformation'
+DATASET_VITAL = 'UserInfo'
 DATASET_NUTRIENTS = 'userNutrients'
-DATASET_LIKE = 'userLikes'
-DATASET_DISLIKE = 'asdf'
+
 DATASET_CAT = 'asdf'
 DATASET_LAST_LOGIN = 'iso8601'
 

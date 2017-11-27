@@ -11,20 +11,23 @@ DynamoDB Interface.
 """
 import json
 import boto3
+import pprint
+import decimal
 import datetime as dt
 import collections
 
 import constants as c
 import form
 import params
-import pprint
+
+from boto3.dynamodb.conditions import Key, Attr
 
 # Work around for decimal rounding bug. Monkey Patch!
-import decimal
 from boto3.dynamodb.types import DYNAMODB_CONTEXT
-from boto3.dynamodb.conditions import Key, Attr
 DYNAMODB_CONTEXT.traps[decimal.Inexact] = 0
 DYNAMODB_CONTEXT.traps[decimal.Rounded] = 0
+
+
 decimal.getcontext().prec = 10
 
 
@@ -191,6 +194,8 @@ class DynamoUserData(object):
         self.table_blood_pressure = self.dynamodb.Table(c.TABLE_BLOOD_PRESSURE)
         self.table_weight = self.dynamodb.Table(c.TABLE_WEIGHT)
         self.table_shopping_list = self.dynamodb.Table(c.TABLE_SHOPPING_LIST)
+        self.table_nutrient_for_day = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
+        self.table_nutrient_for_week = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_WEEK)
         self._tree = lambda: collections.defaultdict(self._tree)
 
 
@@ -206,8 +211,125 @@ class DynamoUserData(object):
             output_list.append(identity[c.UNIQUE_IDENTIFIER].values()[0])
         return output_list
 
+    def like_meal(self, unique_id, meal_key, put_meal):
+        if put_meal:
+            update_op = 'ADD'
+        else:
+            update_op = 'DELETE'
+
+        response = self.table_user_data.update_item(
+            Key={
+                'unique_id': unique_id
+            },
+            UpdateExpression='{op} #likes :meal_key'.format(op=update_op),
+            ExpressionAttributeNames={
+                '#likes': 'likes'
+            },
+            ExpressionAttributeValues={
+                ':meal_key': {meal_key}
+            }
+        )
+
+        if update_op == 'ADD':
+            response = self.table_user_data.update_item(
+                Key={
+                    'unique_id': unique_id
+                },
+                UpdateExpression='DELETE #dislikes :meal_key',
+                ExpressionAttributeNames={
+                    '#dislikes': 'dislikes'
+                },
+                ExpressionAttributeValues={
+                    ':meal_key': {meal_key}
+                }
+            )
+
+        return self.is_liked_or_disliked(unique_id=unique_id, meal_key=meal_key)
+
+    def dislike_meal(self, unique_id, meal_key, put_meal):
+        if put_meal:
+            update_op = 'ADD'
+        else:
+            update_op = 'DELETE'
+
+        response = self.table_user_data.update_item(
+            Key={
+                'unique_id': unique_id
+            },
+            UpdateExpression='{op} #dislikes :meal_key'.format(op=update_op),
+            ExpressionAttributeNames={
+                '#dislikes': 'dislikes'
+            },
+            ExpressionAttributeValues={
+                ':meal_key': {meal_key}
+            }
+        )
+        if update_op == 'ADD':
+            response = self.table_user_data.update_item(
+                Key={
+                    'unique_id': unique_id
+                },
+                UpdateExpression='DELETE #likes :meal_key',
+                ExpressionAttributeNames={
+                    '#likes': 'likes'
+                },
+                ExpressionAttributeValues={
+                    ':meal_key': {meal_key}
+                }
+            )
+        return self.is_liked_or_disliked(unique_id=unique_id, meal_key=meal_key)
+
+    def is_liked_or_disliked(self, unique_id, meal_key):
+        response_like = self.table_user_data.get_item(
+            Key={
+                'unique_id': unique_id
+            },
+            ProjectionExpression='#attr',
+            ExpressionAttributeNames={
+                '#attr': 'likes'
+            }
+        )
+
+        response_dislike = self.table_user_data.get_item(
+            Key={
+                'unique_id': unique_id
+            },
+            ProjectionExpression='#attr',
+            ExpressionAttributeNames={
+                '#attr': 'dislikes'
+            }
+        )
+        if response_like['Item'].get('likes'):
+            if meal_key in response_like['Item'].get('likes'):
+                is_liked = True
+            else:
+                is_liked = False
+        else:
+            is_liked = False
+
+        if response_dislike['Item'].get('dislikes'):
+            if meal_key in response_dislike['Item'].get('dislikes'):
+                is_disliked = True
+            else:
+                is_disliked = False
+        else:
+            is_disliked = False
+
+        return dict(
+            is_liked=is_liked,
+            is_disliked=is_disliked
+        )
+
+
+
 
     def create_shopping_list(self, unique_id, ls_date):
+        """
+
+        :param unique_id:
+        :param ls_date:
+        :return:
+        """
         response = self.table_user_data.update_item(
             Key={
                 'unique_id': unique_id
@@ -224,6 +346,11 @@ class DynamoUserData(object):
         pprint.pprint(response)
 
     def shopping_list(self, unique_id):
+        """
+
+        :param unique_id:
+        :return:
+        """
 
         response = self.table_user_data.get_item(
             Key={
@@ -234,6 +361,7 @@ class DynamoUserData(object):
                 '#attr': 'shopping_list_days'
             }
         )
+        pprint.pprint(response)
         shopping_list = self._tree()
         for date in response['Item']['shopping_list_days']:
             response = self.table_shopping_list.get_item(
@@ -247,17 +375,21 @@ class DynamoUserData(object):
                     '#attr': 'actual_list'
                 }
             )
-            try:
-                for sbls_key, sbls_content in response['Item']['actual_list'].iteritems():
-                    if not sbls_content['CHECKED']:
-                        shopping_list[sbls_key].setdefault('VAL', decimal.Decimal('0.0'))
-                        shopping_list[sbls_key]['UNIT'] = sbls_content['UNIT']
-                        shopping_list[sbls_key]['VAL'] += sbls_content['VAL']
-            except:
-                print "no shoppinglist for this day"
+            pprint.pprint(response)
+            for sbls_key, sbls_content in response['Item']['actual_list'].iteritems():
+                if not sbls_content['CHECKED']:
+                    shopping_list[sbls_key].setdefault('VAL', decimal.Decimal('0.0'))
+                    shopping_list[sbls_key]['UNIT'] = 'g'  # TODO: Einheit einfügen
+                    shopping_list[sbls_key]['VAL'] += sbls_content['VAL']
         return form.convert_to_float(shopping_list)
 
     def shopping_list_check_item(self, unique_id, sbls):
+        """
+
+        :param unique_id:
+        :param sbls:
+        :return:
+        """
         response = self.table_user_data.get_item(
             Key={
                 'unique_id': unique_id
@@ -286,6 +418,12 @@ class DynamoUserData(object):
             )
 
     def shopping_list_uncheck_item(self, unique_id, sbls):
+        """
+
+        :param unique_id:
+        :param sbls:
+        :return:
+        """
         response = self.table_user_data.get_item(
             Key={
                 'unique_id': unique_id
@@ -456,6 +594,136 @@ class DynamoUserData(object):
                 d.update(dict(measure_evening))
         return d
 
+    def check_weight_measurements(self, unique_id, date):
+        """
+
+        :param unique_id: cognito_id
+        :param date: YYYY-MM-DD
+        :return:
+        """
+        MID_DAY = 14
+        tomorrow_dt = form.get_date_time_by_iso(date) + dt.timedelta(days=1)
+        tomorrow_str = form.get_iso_by_datetime(tomorrow_dt)
+
+        response = self.table_weight.query(
+            Select='ALL_ATTRIBUTES',
+            KeyConditionExpression=Key('unique_id').eq(unique_id) & Key('date').between(date, tomorrow_str),
+            TableName=c.TABLE_WEIGHT
+        )
+        measure_morning = False
+        measure_evening = False
+        for item in response['Items']:
+            current_dt = form.get_date_time_by_iso(item['date'])
+            if current_dt.hour < MID_DAY and current_dt.hour > 3:
+                measure_morning = True
+            if current_dt.hour > MID_DAY:
+                measure_evening = True
+
+        d = {}
+        morning_passed = dt.datetime.now() > form.get_date_time_by_iso(date) + dt.timedelta(hours=MID_DAY)
+        evening_passed = dt.datetime.now() > tomorrow_dt
+
+        if morning_passed:
+            d.update(dict(morning=measure_morning))
+        else:
+            if measure_morning:
+                d.update(dict(morning=measure_morning))
+
+        if evening_passed:
+            d.update(dict(evening=measure_evening))
+        else:
+            if measure_evening:
+                d.update(dict(measure_evening))
+        return d
+
+    def percentage_blood_pressure(self, unique_id, date):
+        """
+
+        :param unique_id:
+        :return:
+        """
+        today = date
+        measurements = self.check_blood_pressure_measurements(unique_id=unique_id, date=today)
+        percentage = 0
+        if measurements.get('morning'):
+            percentage += 50
+        if measurements.get('evening'):
+            percentage += 50
+        return percentage
+
+    def insert_weight(self, unique_id, date, weight):
+        if not weight:
+            raise ValueError('No valid measurements')
+        self.table_weight.update_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            },
+            UpdateExpression='SET #weight = :weight',
+            ExpressionAttributeNames={
+                '#weight': 'weight'
+            },
+            ExpressionAttributeValues={
+                ":weight": decimal.Decimal(weight)
+            }
+        )
+        return {'message': 'success'}
+
+    def insert_blood_pressure(self, unique_id, date, systolic, diastolic):
+        if not systolic or not diastolic:
+            raise ValueError('No valid measurements')
+
+        self.table_blood_pressure.update_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            },
+            UpdateExpression='SET #systolic = :systolic',
+            ExpressionAttributeNames={
+                '#systolic': 'systolic'
+            },
+            ExpressionAttributeValues={
+                ":systolic": decimal.Decimal(systolic)
+            }
+        )
+        self.table_blood_pressure.update_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            },
+            UpdateExpression='SET #diastolic = :diastolic',
+            ExpressionAttributeNames={
+                '#diastolic': 'diastolic'
+            },
+            ExpressionAttributeValues={
+                ":diastolic": decimal.Decimal(diastolic)
+            }
+        )
+        return {'message': 'success'}
+
+
+    def percentage_weight(self, unique_id, date):
+        today = date
+        measurements = self.check_weight_measurements(unique_id=unique_id, date=today)
+        percentage = 0
+        if measurements.get('morning'):
+            percentage += 50
+        if measurements.get('evening'):
+            percentage += 50
+        return percentage
+
+    def set_shopping_list(self, unique_id, shoppinglist):
+        for date, content in shoppinglist.iteritems():
+
+            item = {
+                'actual_list': content,
+                 c.DATE: date,
+                 c.UNIQUE_IDENTIFIER: unique_id
+            }
+            self.table_shopping_list.put_item(Item=form.convert_to_decimal(item))
+
+
+
     def query_table_for_active_users(self, delta_time):
         """Scans the user data table for active users. This method is invoked once
         every week when new plans are generated for the following week.
@@ -515,6 +783,82 @@ class DynamoNutrition(object):
     def __init__(self):
         self.dynamodb = boto3.resource('dynamodb', region_name='eu-central-1')
         self.client = boto3.client('dynamodb', region_name='eu-central-1')
+        self.table_nutrient_for_day = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
+        self.table_nutrient_for_week = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_WEEK)
+
+    def _update_checked_nutrients(self, unique_id, date, plan, add):
+        """
+
+        :param unique_id:
+        :param date:
+        :param plan:
+        :param add:
+        :return:
+        """
+        table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
+        week = form.get_week_by_date(date)
+
+        item_checked_nutrients_for_week = table.get_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_WEEK,
+            Key={
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.WEEK: week
+            },
+            ProjectionExpression='#toplevel',
+            ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_WEEK_CHECKED}
+        )
+
+        item_checked_nutrients_for_day = table.get_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
+            Key={
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.DATE: date
+            },
+            ProjectionExpression='#toplevel',
+            ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_DAY_CHECKED}
+        )
+        pprint.pprint(item_checked_nutrients_for_day)
+        pprint.pprint(plan)
+        for container_key, container_content in plan['Item'][c.NUTRIENTS_FOR_MEAL].iteritems():
+            for meal_key, meal_content in container_content.iteritems():
+                for n in params.nutrientList:
+                    item_checked_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK_CHECKED][n]['VAL'] += \
+                        meal_content['nutrients'][n]['VAL'] * (1 if add else -1)
+
+                    item_checked_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK_CHECKED][n]['UNIT'] = \
+                        meal_content['nutrients'][n]['UNIT']
+
+                    item_checked_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY_CHECKED][n]['VAL'] += \
+                        meal_content['nutrients'][n]['VAL'] * (1 if add else -1)
+
+                    item_checked_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY_CHECKED][n]['UNIT'] = \
+                        meal_content['nutrients'][n]['UNIT']
+
+        table.update_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
+            Key={c.UNIQUE_IDENTIFIER: unique_id,
+                 c.DATE: date},
+            UpdateExpression='SET #toplevel = :value',
+            ExpressionAttributeNames={
+                "#toplevel": c.NUTRIENTS_FOR_DAY_CHECKED
+            },
+            ExpressionAttributeValues={
+                ":value": item_checked_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY_CHECKED]
+            }
+        )
+
+        table.update_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_WEEK,
+            Key={c.UNIQUE_IDENTIFIER: unique_id,
+                 c.WEEK: week},
+            UpdateExpression='SET #toplevel = :value',
+            ExpressionAttributeNames={
+                "#toplevel": c.NUTRIENTS_FOR_WEEK
+            },
+            ExpressionAttributeValues={
+                ":value": item_checked_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK_CHECKED]
+            }
+        )
 
     def _update_total_nutrition_values(self, unique_id, date, plan, add):
         """Updates total nutrition values for both Day and Week table
@@ -527,17 +871,25 @@ class DynamoNutrition(object):
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
         week = form.get_week_by_date(date)
 
-        item_nutrients_for_week = table.get_item(TableName=c.TABLE_NUTRITIONAL_NEEDS_WEEK,
-                                                 Key={c.UNIQUE_IDENTIFIER: unique_id,
-                                                      c.WEEK: week},
-                                                 ProjectionExpression='#toplevel',
-                                                 ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_WEEK})
+        item_nutrients_for_week = table.get_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_WEEK,
+            Key={
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.WEEK: week
+            },
+            ProjectionExpression='#toplevel',
+            ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_WEEK}
+        )
 
-        item_nutrients_for_day = table.get_item(TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
-                                                Key={c.UNIQUE_IDENTIFIER: unique_id,
-                                                     c.DATE: date},
-                                                ProjectionExpression='#toplevel',
-                                                ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_DAY})
+        item_nutrients_for_day = table.get_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
+            Key={
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.DATE: date
+            },
+            ProjectionExpression='#toplevel',
+            ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_DAY}
+        )
 
         for container, container_content in plan.iteritems():
             item_nutrients_for_container = table.get_item(
@@ -545,7 +897,7 @@ class DynamoNutrition(object):
                 Key={c.UNIQUE_IDENTIFIER: unique_id, c.DATE: date},
                 ProjectionExpression='#toplevel.#container',
                 ExpressionAttributeNames={
-                    "#toplevel": c.NUTRIENTS_FOR_MEAL,
+                    "#toplevel": c.NUTRIENTS_FOR_CONTAINER,
                     "#container": container
                 }
             )
@@ -554,48 +906,79 @@ class DynamoNutrition(object):
 
 
                 for n in params.nutrientList:
-                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['VAL'] += cat_content[n]['VAL'] *\
+                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['VAL'] += cat_content[n]['VAL'] * \
                                                                                        (1 if add else -1)
                     item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['UNIT'] = cat_content[n]['UNIT']
                     item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['VAL'] += cat_content[n]['VAL'] * \
                                                                                      (1 if add else -1)
                     item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['UNIT'] = cat_content[n]['UNIT']
-                    item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_MEAL][container][n]['VAL'] += \
+                    item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_CONTAINER][container][n]['VAL'] += \
                         cat_content[n]['VAL'] * (1 if add else -1)
-                    item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_MEAL][container][n]['UNIT'] = \
+                    item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_CONTAINER][container][n]['UNIT'] = \
                         cat_content[n]['UNIT']
 
 
-            table.update_item(TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
-                              Key={c.UNIQUE_IDENTIFIER: unique_id,
-                                   c.DATE: date},
-                              UpdateExpression='SET #toplevel.#cat = :value',
-                              ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_MEAL,
-                                                        "#cat": container},
-                              ExpressionAttributeValues={":value": item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_MEAL][container]})
+            table.update_item(
+                TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
+                Key={c.UNIQUE_IDENTIFIER: unique_id,
+                   c.DATE: date},
+                UpdateExpression='SET #toplevel.#cat = :value',
+                ExpressionAttributeNames={
+                    "#toplevel": c.NUTRIENTS_FOR_CONTAINER,
+                    "#cat": container
+                },
+                ExpressionAttributeValues={
+                    ":value": item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_CONTAINER][container]
+                }
+            )
 
-        table.update_item(TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
-                              Key={c.UNIQUE_IDENTIFIER: unique_id,
-                                   c.DATE: date},
-                              UpdateExpression='SET #toplevel = :value',
-                              ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_DAY},
-                              ExpressionAttributeValues={
-                                  ":value": item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY]
-                              }
-                          )
+        table.update_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_DAY,
+            Key={c.UNIQUE_IDENTIFIER: unique_id,
+               c.DATE: date},
+            UpdateExpression='SET #toplevel = :value',
+            ExpressionAttributeNames={
+                "#toplevel": c.NUTRIENTS_FOR_DAY
+            },
+            ExpressionAttributeValues={
+              ":value": item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY]
+            }
+        )
 
-        table.update_item(TableName=c.TABLE_NUTRITIONAL_NEEDS_WEEK,
-                              Key={c.UNIQUE_IDENTIFIER: unique_id,
-                                   c.WEEK: week},
-                              UpdateExpression='SET #toplevel = :value',
-                              ExpressionAttributeNames={"#toplevel": c.NUTRIENTS_FOR_WEEK},
-                              ExpressionAttributeValues={
-                                  ":value": item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK]
-                              }
-                          )
+        table.update_item(
+            TableName=c.TABLE_NUTRITIONAL_NEEDS_WEEK,
+            Key={
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.WEEK: week
+            },
+            UpdateExpression='SET #toplevel = :value',
+            ExpressionAttributeNames={
+                "#toplevel": c.NUTRIENTS_FOR_WEEK
+            },
+            ExpressionAttributeValues={
+              ":value": item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK]
+            }
+        )
 
 
+    def get_whole_item_for_day(self, unique_id, date):
+        response = self.table_nutrient_for_day.get_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            }
+        )
+        return form.convert_to_float(response.get('Item'))
 
+    def get_whole_item_for_week(self, unique_id, week):
+        response = self.table_nutrient_for_day.get_item(
+            Key={
+                'unique_id': unique_id,
+                'week': week
+            }
+        )
+        print response
+        return form.convert_to_float(response.get('Item'))
 
     def _set_dynamo_table(self, hash, range, name):
         """Method to set a new DynamoDB table
@@ -634,48 +1017,151 @@ class DynamoNutrition(object):
         )
         return
 
-    def write_to_nutrients_for_day(self, status, unique_id, plan, nutForDay,
-                                   nutForMeal, splittedNeeds, nutNeedsForDay):
+    def percentage_food(self, unique_id, date):
+        """
+
+        :param unique_id:
+        :param date:
+        :return:
+        """
+        table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
+        response = table.get_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            },
+            ProjectionExpression='#attr',
+            ExpressionAttributeNames={
+                '#attr': 'plan_checked'
+            }
+        )
+        meals_checked = 0
+        meals_total = 0
+        if not response.get('Item'):
+            return 0
+        for container_key, container_content in response['Item']['plan_checked'].iteritems():
+            for key, val in container_content.iteritems():
+                meals_total += 1.0
+                if val:
+                    meals_checked += 1.0
+
+        return int((meals_checked/meals_total) * 100.0)
+
+    def meal_eaten(self, unique_id, date, container_key, meal_key):
+        """
+
+        :param unique_id:
+        :param date:
+        :param container_key:
+        :param meal_key:
+        :return:
+        """
+        table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
+
+
+        response_plan = table.get_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            },
+            ProjectionExpression='#plan.#container_key.#meal_key',
+            ExpressionAttributeNames={
+                '#plan': c.NUTRIENTS_FOR_MEAL,
+                '#container_key': container_key,
+                '#meal_key': meal_key
+            }
+        )
+        if not response_plan.get('Item'):
+            return {'status': 'no success',
+                    'message': "Meal with key '" + meal_key + "' not stored in DynamoDB"}
+
+        response = table.get_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            },
+            ProjectionExpression='#plan_checked.#container_key.#meal_key',
+            ExpressionAttributeNames={
+                '#plan_checked': c.PLAN_CHECKED,
+                '#container_key': container_key,
+                '#meal_key': meal_key
+            }
+        )
+        if response['Item'][c.PLAN_CHECKED][container_key][meal_key]:
+            return {'status': 'no success',
+                    'message': 'Meal already checked.'}
+
+        self._update_checked_nutrients(unique_id=unique_id, date=date, plan=response_plan, add=True)
+
+        response = table.update_item(
+            Key={
+                'unique_id': unique_id,
+                'date': date
+            },
+            UpdateExpression='SET #plan_checked.#container_key.#meal_key = :checked',
+            ExpressionAttributeNames={
+                '#plan_checked': 'plan_checked',
+                '#container_key': container_key,
+                '#meal_key': meal_key
+            },
+            ExpressionAttributeValues={
+                ":checked": True
+            }
+        )
+        return {'status': 'success',
+                'message': 'Everything worked fine.'}
+
+
+    def write_to_nutrients_for_day(self, status, unique_id, plan, nut_for_day, meals_checked,
+                                   nut_for_container, splittedNeeds, nutNeedsForDay):
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
         with table.batch_writer() as batch:
             for day in plan.iterkeys():
-                current_plan = {c.PLAN: plan[day],
-                                c.UNIQUE_IDENTIFIER: unique_id,
-                                c.DATE: day,
-                                c.STATUS: status,
-                                c.NUTRIENTS_FOR_DAY: nutForDay[day],
-                                c.NUTRIENTS_FOR_MEAL: nutForMeal[day],
-                                c.SPLITTED_NEEDS: splittedNeeds,
-                                c.NUTRIENT_NEED_FOR_DAY: nutNeedsForDay,
-                                c.CREATED_ON: form.get_date_in_iso()}
-                print 'this is current_plan'
-                print current_plan
+                current_plan = {
+                    c.PLAN: plan[day],
+                    c.UNIQUE_IDENTIFIER: unique_id,
+                    c.DATE: day,
+                    c.STATUS: status,
+                    c.NUTRIENTS_FOR_DAY: nut_for_day[day],
+                    c.NUTRIENTS_FOR_CONTAINER: nut_for_container[day],
+                    c.SPLITTED_NEEDS: splittedNeeds,
+                    c.NUTRIENT_NEED_FOR_DAY: nutNeedsForDay,
+                    c.CREATED_ON: form.get_date_in_iso(),
+                    c.NUTRIENTS_FOR_DAY_CHECKED: params.default_nutrient_checked_dict,
+                    "plan_checked": meals_checked[day]
+                }
+                # print 'this is current_plan'
+                # pprint.pprint(current_plan)
 
                 batch.put_item(Item=form.convert_to_decimal(current_plan))
 
-    def write_to_nutrients_for_week(self, boundsForWeek, unique_id, nutForWeek, time):
+    def write_to_nutrients_for_week(self, boundsForWeek, unique_id, nut_for_week, time):
         """
 
         :param boundsForWeek: {'EARG': {'LB': 35000}, 'VC': {...
         :param unique_id:
-        :param nutForWeek: {'EARG': 38000, 'VC': 4100000, ..
+        :param nut_for_week: {'EARG': 38000, 'VC': 4100000, ..
         :return:
         """
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_WEEK)
-        for week, nutForWeek in nutForWeek.iteritems():
-            item = {c.BOUNDS_FOR_WEEK: form.convert_to_decimal(boundsForWeek),
-                    c.UNIQUE_IDENTIFIER: unique_id,
-                    c.WEEK: week,
-                    c.NUTRIENTS_FOR_WEEK: form.convert_to_decimal(nutForWeek),
-                    c.SOLUTION_TIME: form.convert_to_decimal(time),
-                    c.CREATED_ON: form.get_date_in_iso()}
+        for week, nut_for_week in nut_for_week.iteritems():
+            item = {
+                c.BOUNDS_FOR_WEEK: form.convert_to_decimal(boundsForWeek),
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.WEEK: week,
+                c.NUTRIENTS_FOR_WEEK: form.convert_to_decimal(nut_for_week),
+                c.SOLUTION_TIME: form.convert_to_decimal(time),
+                c.CREATED_ON: form.get_date_in_iso(),
+                c.NUTRIENTS_FOR_WEEK_CHECKED: params.default_nutrient_checked_dict
+            }
             last_week = week
 
-            table.put_item(Item=item)
+            table.put_item(Item=form.convert_to_decimal(item))
         table = self.dynamodb.Table(c.TABLE_USER_DATA)
-        item = {c.UNIQUE_IDENTIFIER: unique_id,
-                c.LAST_EVALUATED_WEEK: last_week}
-        print item
+        item = {
+            c.UNIQUE_IDENTIFIER: unique_id,
+            c.LAST_EVALUATED_WEEK: last_week
+        }
         try:
             table.update_item(Item=item)
         except:
@@ -766,8 +1252,10 @@ class DynamoNutrition(object):
             expression.update({"#currentKey": key})
 
         item = table.get_item(
-            Key={c.UNIQUE_IDENTIFIER: unique_id,
-                 c.DATE: date},
+            Key={
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.DATE: date
+            },
             ProjectionExpression='#plan.#container.#currentKey' if key else '#plan.#container',
             ExpressionAttributeNames=expression
         )
@@ -855,14 +1343,18 @@ class DynamoNutrition(object):
         """
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_WEEK)
         week = form.get_week_by_date(date)
-        currentItem = table.get_item(Key={c.UNIQUE_IDENTIFIER: unique_id,
-                                          c.WEEK: week},
-                                     ProjectionExpression='#toplevel',
-                                     ExpressionAttributeNames={'#toplevel': c.BOUNDS_FOR_WEEK})
+        current_item = table.get_item(
+            Key={
+                c.UNIQUE_IDENTIFIER: unique_id,
+                c.WEEK: week
+            },
+            ProjectionExpression='#toplevel',
+            ExpressionAttributeNames={'#toplevel': c.BOUNDS_FOR_WEEK}
+        )
 
-        currentItem = form.convert_to_float(currentItem)
+        current_item = form.convert_to_float(current_item)
         for n in params.nutrientsMicroList:
-            currentItem[c.ITEM][c.BOUNDS_FOR_WEEK][n][c.LB] *= redLb
-        ret_val = currentItem[c.ITEM][c.BOUNDS_FOR_WEEK]
+            current_item[c.ITEM][c.BOUNDS_FOR_WEEK][n][c.LB] *= redLb
+        ret_val = current_item[c.ITEM][c.BOUNDS_FOR_WEEK]
 
         return ret_val

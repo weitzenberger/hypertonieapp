@@ -32,6 +32,9 @@ def objective_function(phenome):
     # constraint_eq = abs(nutrient_sum - value)  #
     # constraint_ineq = max(nutrient_sum - ub, 0)  + max(lb - nutrient_sum, 0) # constraint for inequality constraints
 
+    print(type(phenome))
+    print(phenome)
+
     return sum(phenome)
 
 

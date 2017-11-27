@@ -4,15 +4,13 @@ service: escamedmobileapi # NOTE: update this with your service type
 
 provider:
   name: aws
+  useNestedStacks: true
+  useOpenApi: true
   runtime: python2.7
   region: eu-central-1
   memorysize: 128
   stage: expo
   timeout: 6
-  environment:
-    SQL_HOST: main.cxh7i7jlsgbr.eu-central-1.rds.amazonaws.com
-    SQL_USER: engelstrompete
-    SQL_PW: escagang69
 
 
 #  vpc:
@@ -51,10 +49,14 @@ provider:
         - "cognito-identity:*"
       Resource:
         - "*"
-    - Effect: Allow
-      Action:
-        - "execute-api:Invoke"
-      Resource: "arn:aws:execute-api:us-central-1:*:*"
+#    - Effect: 'Allow'
+#      Action:
+#        - "cognito"
+#    - Effect: 'Allow'
+#      Action:
+#        - "execute-api:Invoke"
+#      Resource: "arn:aws:execute-api:eu-central-1:*:*"
+
 
 
 package:
@@ -65,10 +67,8 @@ package:
 functions:
   generate:
     handler: handlers.generate
-    description: main function to generate for a
     memorySize: 1536
     timeout: 300
-    environemnt: cat
     events:
       - http:
           path: generate
@@ -77,12 +77,11 @@ functions:
 
   regenerate:
     handler: handlers.regenerate
-    description: regenerates a category
     memorysize: 512
     timeout: 30
     events:
       - http:
-          path: regenerate
+          path: func/regenerate
           method: POST
           integration: lambda
           authorizer:
@@ -91,7 +90,6 @@ functions:
 
   generate_for_next_week:
     handler: handlers.generate_for_next_week
-    description: checks DDB for active users and generates for upcoming week. Is invoked by CloudWatch Events
     events:
       - schedule:
           rate: cron(0 10 ? * FRI *)
@@ -100,7 +98,6 @@ functions:
 
   post_plan:
     handler: handlers.post_plan
-    description: function to post a self-created plan
     events:
       - http:
           path: post_plan
@@ -113,10 +110,9 @@ functions:
 
   scan_bls:
     handler: mobileapi.scan_bls
-    description: scan BLS
     events:
       - http:
-          path: scan_bls
+          path: post/scan_bls
           method: POST
           integration: lambda
           authorizer:
@@ -149,100 +145,29 @@ functions:
     timeout: 300
     events:
       - http:
-          path: invoke_generate_from_mobile_device
+          path: func/invoke_generate_from_mobile_device
           method: POST
           integration: lambda
+          cors: true
           authorizer:
             type: aws_iam
 
-  nutrients:
-    handler: mobileapi.nutrients
+  kadia_content:
+    handler: mobileapi.get_kadia_content
     events:
       - http:
-          path: get/nutrients
-          method: GET
+          path: get/kadia_content
+          method: POST
           authorizer: aws_iam
           integration: lambda
           cors: true
 
-
-  allergies:
-    handler: mobileapi.allergies
-    events:
-      - http:
-          path: get/allergies
-          method: GET
-          authorizer: aws_iam
-          integration: lambda
-          cors: true
-
-  habits:
-    handler: mobileapi.habits
-    events:
-      - http:
-          path: get/habits
-          method: GET
-          authorizer: aws_iam
-          integration: lambda
-          cors: true
-
-
-  intolerances:
-    handler: mobileapi.intolerances
-    events:
-      - http:
-          path: get/intolerances
-          method: GET
-          authorizer: aws_iam
-          integration: lambda
-          cors: true
-
-
-  container_categories:
-    handler: mobileapi.container_categories
-    events:
-      - http:
-          path: get/container_categories
-          method: GET
-          authorizer: aws_iam
-          integration: lambda
-          cors: true
-
-  input_range:
-    handler: mobileapi.input_range
-    events:
-      - http:
-          path: get/input_range
-          method: GET
-          authorizer: aws_iam
-          integration: lambda
-          cors: true
-
-  daily_top:
-    handler: mobileapi.daily_top
-    events:
-      - http:
-          path: get/daily_top
-          method: GET
-          authorizer: aws_iam
-          integration: lambda
-          cors: true
-
-  home_slides:
-    handler: mobileapi.home_slides
-    events:
-      - http:
-          path: get/home_slides
-          method: GET
-          authorizer: aws_iam
-          integration: lambda
-          cors: true
 
   blood_pressure:
     handler: mobileapi.blood_pressure_for_week
     events:
       - http:
-          path: blood_pressure
+          path: over_view/blood_pressure
           method: POST
           authorizer: aws_iam
           integration: lambda
@@ -252,17 +177,17 @@ functions:
     handler: mobileapi.blood_pressure_input_check
     events:
       - http:
-          path: blood_pressure_input_check
+          path: get/dashboard/blood_pressure/inputs_filled
           method: POST
           authorizer: aws_iam
           integration: lambda
           cors: true
 
   weight:
-    handler: mobileapi.blood_pressurweighte_for_week
+    handler: mobileapi.weight_for_week
     events:
       - http:
-          path: weight
+          path: overview/weight
           method: POST
           authorizer: aws_iam
           integration: lambda
@@ -298,7 +223,7 @@ functions:
           integration: lambda
           cors: true
 
-   check_item:
+  check_item:
     handler: mobileapi.check_item
     events:
       - http:
@@ -307,4 +232,97 @@ functions:
           authorizer: aws_iam
           integration: lambda
           cors: true
+
+  meal_eaten:
+    handler: mobileapi.meal_eaten
+    events:
+      - http:
+          path: post/meal_plan/meal_eaten
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  percentage:
+    handler: mobileapi.percentage
+    events:
+      - http:
+          path: get/dashboard/percentage
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+
+  like_meal:
+    handler: mobileapi.like_meal
+    events:
+      - http:
+          path: post/meal_plan/like_meal
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  dislike_meal:
+    handler: mobileapi.dislike_meal
+    events:
+      - http:
+          path: post/meal_plan/dislike_meal
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  is_like_or_disliked:
+    handler: mobileapi.dislike_meal
+    events:
+      - http:
+          path: post/meal_plan/is_liked_or_disliked
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+
+  measure_blood_pressure:
+    handler: mobileapi.measure_blood_pressure
+    events:
+      - http:
+          path: post/measure/blood_pressure
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  measure_weight:
+    handler: mobileapi.measure_weight
+    events:
+      - http:
+          path: post/measure/weight
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  hints:
+    handler: mobileapi.hints
+    events:
+      - http:
+          path: get/dashboard/hints
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  get_whole_item:
+    handler: mobileapi.get_whole_item
+    events:
+      - http:
+          path: get/get_whole_item
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
 
