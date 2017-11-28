@@ -467,6 +467,28 @@ class DynamoUserData(object):
         DIA_HIGH = 90
         DIA_HIGH_NORM = 80
 
+        def check_blood_pressure(systolic, diastolic, date):
+            if diastolic > DIA_HIGH:
+                status_diastolic = 'increase'
+            elif pressure_diastolic_average > DIA_HIGH_NORM:
+                status_diastolic = 'normal'
+            else:
+                status_diastolic = 'optimal'
+
+            if diastolic > SYS_HIGH:
+                status_systolic = 'increase'
+            elif systolic > SYS_HIGH_NORM:
+                status_systolic = 'normal'
+            else:
+                status_systolic = 'optimal'
+            return dict(
+                systolic=systolic,
+                diastolic=diastolic,
+                status_systolic=status_systolic,
+                status_diastolic=status_diastolic,
+                date=date
+            )
+
 
         tomorrow = form.get_date_time_by_iso(date) + dt.timedelta(days=1)
         tomorrow_str = form.get_iso_by_datetime(tomorrow)
@@ -483,34 +505,30 @@ class DynamoUserData(object):
         pressure_systolic_sum = 0
         pressure_diastolic_sum = 0
 
+        detailed_date_pressure = []
         for item in response['Items']:
             pressure_diastolic_sum += item['diastolic']
             pressure_systolic_sum += item['systolic']
+            detailed_date_pressure.append(
+                check_blood_pressure(
+                    systolic=item['systolic'],
+                    diastolic=item['diastolic'],
+                    date=item['date']
+                )
+            )
 
         measure_count = len(response['Items'])
         pressure_systolic_average = pressure_systolic_sum / measure_count
         pressure_diastolic_average = pressure_diastolic_sum / measure_count
 
-        if pressure_diastolic_average > DIA_HIGH:
-            status_diastolic = 'increase'
-        elif pressure_diastolic_average > DIA_HIGH_NORM:
-            status_diastolic = 'normal'
-        else:
-            status_diastolic = 'optimal'
-
-        if pressure_systolic_average > SYS_HIGH:
-            status_systolic = 'increase'
-        elif pressure_systolic_average > SYS_HIGH_NORM:
-            status_systolic = 'normal'
-        else:
-            status_systolic = 'optimal'
-
-        return dict(
-            systolic=form.convert_to_float(pressure_systolic_average),
-            diastolic=form.convert_to_float(pressure_diastolic_average),
-            status_diastolic=status_diastolic,
-            status_systolic=status_systolic
+        d = check_blood_pressure(
+            systolic=pressure_systolic_average,
+            diastolic=pressure_diastolic_average,
+            date=date
         )
+        d.update(dict(detailed_list=detailed_date_pressure))
+
+        return form.convert_to_float(d)
 
     def average_weight_for_day(self, unique_id, date):
         """Returns average weight for considered day
@@ -519,6 +537,23 @@ class DynamoUserData(object):
         :param date: YYYY-MM-DD
         :return: None | weight, status
         """
+
+        WEIGHT_HIGH = 150
+        WEIGHT_NORMAL = 130
+
+        def check_weight(weight, date):
+            if weight > WEIGHT_HIGH:
+                status = 'increase'
+            elif weight > WEIGHT_NORMAL:
+                status = 'normal'
+            else:
+                status = 'optimal'
+            return dict(
+                weight=weight,
+                status=status,
+                date=date
+            )
+
         tomorrow = form.get_date_time_by_iso(date) + dt.timedelta(days=1)
         tomorrow_str = form.get_iso_by_datetime(tomorrow)
 
@@ -532,24 +567,24 @@ class DynamoUserData(object):
             return None
 
         weight_sum = 0
+        detailed_date_weight= []
 
         for item in response['Items']:
             weight_sum += item['weight']
+            detailed_date_weight.append(
+                check_weight(
+                    weight=item['weight'],
+                    date=item['date']
+                )
+            )
 
         measure_count = len(response['Items'])
         weight_average = weight_sum / measure_count
 
-        if weight_average > 150:
-            status = 'increase'
-        elif weight_average > 130:
-            status = 'normal'
-        else:
-            status = 'optimal'
+        d = check_weight(weight=weight_average, date=date)
+        d.update(dict(detailed_list=detailed_date_weight))
 
-        return dict(
-            weight=form.convert_to_decimal(weight_average),
-            status=status
-        )
+        return form.convert_to_float(d)
 
 
     def check_blood_pressure_measurements(self, unique_id, date):
@@ -901,21 +936,22 @@ class DynamoNutrition(object):
                     "#container": container
                 }
             )
-            for cat, cat_content in container_content.iteritems():
+            for meal_key, meal_content in container_content.iteritems():
 
 
 
                 for n in params.nutrientList:
-                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['VAL'] += cat_content[n]['VAL'] * \
+                    pprint.pprint(item_nutrients_for_week)
+                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['VAL'] += meal_content['nutrients'][n]['VAL'] * \
                                                                                        (1 if add else -1)
-                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['UNIT'] = cat_content[n]['UNIT']
-                    item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['VAL'] += cat_content[n]['VAL'] * \
+                    item_nutrients_for_week[c.ITEM][c.NUTRIENTS_FOR_WEEK][n]['UNIT'] = meal_content['nutrients'][n]['UNIT']
+                    item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['VAL'] += meal_content['nutrients'][n]['VAL'] * \
                                                                                      (1 if add else -1)
-                    item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['UNIT'] = cat_content[n]['UNIT']
+                    item_nutrients_for_day[c.ITEM][c.NUTRIENTS_FOR_DAY][n]['UNIT'] = meal_content['nutrients'][n]['UNIT']
                     item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_CONTAINER][container][n]['VAL'] += \
-                        cat_content[n]['VAL'] * (1 if add else -1)
+                        meal_content['nutrients'][n]['VAL'] * (1 if add else -1)
                     item_nutrients_for_container[c.ITEM][c.NUTRIENTS_FOR_CONTAINER][container][n]['UNIT'] = \
-                        cat_content[n]['UNIT']
+                        meal_content['nutrients'][n]['UNIT']
 
 
             table.update_item(
@@ -1211,25 +1247,48 @@ class DynamoNutrition(object):
         :param cat: BF, SA, WM, ...
         :param item: {'BF': {SBLS1 oder Mxxxx: {'EARG' : xxx, ..}, SBLS2...}}
         """
-        plan = form.convert_to_decimal(nutrients.plan)
-        print 'this is update item'
-        print plan
+        plan = form.convert_to_decimal(nutrients.nutrients_for_meal)
+        for_loop_broken = False
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
         for date, day_plan in plan.iteritems():
             for container, container_content in day_plan.iteritems():
                 for meal_key, meal_content in container_content.iteritems():
+                    try:
+                        response = table.update_item(
+                            Key={
+                                c.UNIQUE_IDENTIFIER: unique_id,
+                                c.DATE: date
+                            },
+                            UpdateExpression='SET #toplevel.#secondlevel.#thirdlevel = :value',
+                            ConditionExpression=Attr('#toplevel.#secondlevel').exists(),
+                            ExpressionAttributeNames={
+                                "#toplevel": c.PLAN,
+                                "#secondlevel": container,
+                                "#thirdlevel": meal_key
+                            },
+                            ExpressionAttributeValues={
+                                ":value": meal_content
+                            }
+                        )
+                    except:
+                        for_loop_broken = True
+                        break
+                if for_loop_broken:
                     response = table.update_item(
                         Key={
                             c.UNIQUE_IDENTIFIER: unique_id,
                             c.DATE: date
                         },
-                        UpdateExpression='SET #toplevel.#secondlevel.#thirdlevel = :value',
+                        UpdateExpression='SET #toplevel.#secondlevel = :value',
                         ExpressionAttributeNames={
                             "#toplevel": c.PLAN,
                             "#secondlevel": container,
-                            "#thirdlevel": meal_key
+
                         },
-                        ExpressionAttributeValues={":value": meal_content})
+                        ExpressionAttributeValues={
+                            ":value": container_content
+                        }
+                    )
 
                     self._update_total_nutrition_values(unique_id=unique_id, date=date,
                                                         plan=plan[date], add=True)
@@ -1272,8 +1331,8 @@ class DynamoNutrition(object):
         :return: data structure that is in last defined level
         """
         table = self.dynamodb.Table(c.TABLE_NUTRITIONAL_NEEDS_DAY)
-        if isinstance(date, basestring):
-            raise TypeError('date must be a list or tuple not basestring')
+        # if isinstance(date, basestring):
+        #     raise TypeError('date must be a list or tuple not basestring')
 
         if third_level:
             if not second_level:

@@ -11,16 +11,17 @@ store the results in a proper data structure.
 @author: L.We
 """
 
+import array
 import collections
-import pulp
+import pprint
 
-import constants as c
+import pulp
+from sqlalchemy.sql.expression import select
+
 import form
 import params
-import array
+import constants as c
 from dbmodel import MealComposition, BLS, engine
-from sqlalchemy.sql.expression import select
-import pprint
 
 
 class StandardConstraint(object):
@@ -222,7 +223,9 @@ class Modeller(object):
                     sum_local = None
                     current_sum_for_nutrient.append(self.all_meals[container_key][meal_key][n] * variable)
                 if n == local_nut:
-                    sum_local = current_sum_for_nutrient + (add_meal[n] if add_meal else [])
+                    print 'this is add_meal'
+                    print add_meal
+                    sum_local = current_sum_for_nutrient + ([add_meal[n]['VAL']] if add_meal else [])
 
                 self.sumGlobal.setdefault(day, {}).setdefault(n, []).append(current_sum_for_nutrient)
 
@@ -321,11 +324,8 @@ class Modeller(object):
 
     def set_meals(self, meals, needs, add_meal=None):
 
-        week_list = []
         for day in self.days:
-            meal_list_day = []
             for container_key, container_content in meals.iteritems():
-                meal_list_oblig = []
                 for item in container_content:
                     for k in item['meals'].keys():
                         if not self.variable[day][container_key].get(k):
@@ -421,11 +421,10 @@ class Evaluator(object):
     """Evaluator formats data to store it in DDB
     """
 
-    def __init__(self, model, meals, variable, db):
+    def __init__(self, model, meals, variable):
         self.model = model
         self.meals = meals
         self.variable = variable
-        self._dB = db
         self.switchUnit = {
             nut: params.BLS2gramm[nut] * pot for nut, pot in params.assignUnit.iteritems()
             }
@@ -464,6 +463,7 @@ class Evaluator(object):
         return d
 
     def evaluate_meals_for_container(self):
+        pprint.pprint(self.meals)
         for day, day_plan in self.variable.iteritems():
             for container_key, container_content in day_plan.iteritems():
                 for meal_key, variable in container_content.iteritems():
@@ -508,13 +508,6 @@ class Evaluator(object):
                             self.plan[day][container_key][meal_key]['nutrients'][n]['VAL']
 
 
-
-
-
-
-
-
-
     def get_all_nutrients(self):
         """
         currentXXX always refers to self.meals
@@ -528,9 +521,6 @@ class Evaluator(object):
                 'meals': self.meals
         )"""
 
-        # self.evaluate_gen()
-        # self.evaluate_salad()
-        # self.evaluate_meal()
         self.evaluate_meals_for_container()
         self.evaluate_container()
 
@@ -574,11 +564,4 @@ class Evaluator(object):
         return vars_not_in_plan
 
 if __name__ == '__main__':
-    eval = Evaluator(1,2,3,4)
-    pprint.pprint(eval.get_meal_vals('M0001'))
-
-
-
-
-
-
+    pass

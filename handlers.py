@@ -16,7 +16,6 @@ import sys
 import form
 import awsapi
 from manager import GenerateManager, RegenerateManager
-# from database import SBLSDatabase
 import traceback
 
 
@@ -52,10 +51,11 @@ def regenerate(event, context):
     :return: dict
     """
 
-    cognito_id = event["body"]["unique_id_as_arg"]
+    cognito_id = event['context']['cognito-identity-id']
+    date = event['body-json']['date']
+    meal_key = event['body-json']['meal_key']
+    container_key = event['body-json']['container_key']
 
-    print event["body"]["meal_key"]
-    print event["body"]["container"]
     with RegenerateManager(
             cognito_id=cognito_id,
             event=event,
@@ -63,7 +63,7 @@ def regenerate(event, context):
             time_out=30,
             cbc_log=True
     ) as manager:
-        manager.set_meal_by_cat(cat=cat, **kwargs_cat[cat])
+        manager.set_meal_by_cat(container_key=container_key)
 
     return manager.managerLog
 
@@ -115,18 +115,6 @@ def reset_all_user_nutrients(event, context):
     return dict(ValidIdentitiesFound=len(list_of_identities),
                 IndentitiesWithoutDataset=response['Crashes'])
 
-def scan_bls(event, context):
-    """Scans BLS for groceries to add to a meal plan
-
-    :param event: {'body': {'keyword': keywordSnipped}}
-    :return:
-    """
-
-    dB = SBLSDatabase()
-    print event
-    response = dB.scan_bls(keyword=event['body']['keyword'])
-
-    return response
 
 
 def post_plan(event, context):
@@ -136,7 +124,7 @@ def post_plan(event, context):
     :param context: Lambda context object (Mobile Device)
     :return:
     """
-    cognito_id = event['body']['unique_id_as_arg']
+    cognito_id = event['context']['cognito-identity-id']
     db = SBLSDatabase()
     d = {}
 

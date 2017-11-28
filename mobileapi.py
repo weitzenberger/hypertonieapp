@@ -6,22 +6,25 @@ Created on 23.10.17
 
 @author: L.We
 """
-import params
-import dbmodel as db
-import form
+
+
+
 import pprint
-import awsapi
 import random
 import pymysql
 import requests
-from dbmodel import BLS, engine
 from sqlalchemy.sql.expression import select
+
+import awsapi
+import params
+import dbmodel as db
+import form
+from dbmodel import BLS, engine
+import constants as c
 
 import sys
 reload(sys)
 sys.setdefaultencoding('utf-8')
-
-import constants as c
 
 
 def _get_all_entries(engine, model):
@@ -64,13 +67,13 @@ def _input_range():
             step=input_pal.STEP
         ),
         systolic=dict(
-            min=int(input_systolic.LOW_BOUND),
-            max=int(input_systolic.UP_BOUND),
+            min=int(input_systolic.LOW_BOUND) if input_systolic.LOW_BOUND else None,
+            max=int(input_systolic.UP_BOUND) if input_systolic.UP_BOUND else None,
             step=int(input_systolic.STEP)
         ),
         diastolic=dict(
-            min=int(input_diastolic.LOW_BOUND),
-            max=int(input_diastolic.UP_BOUND),
+            min=int(input_diastolic.LOW_BOUND) if input_diastolic.LOW_BOUND else None,
+            max=int(input_diastolic.UP_BOUND) if input_diastolic.UP_BOUND else None,
             step=int(input_diastolic.STEP)
         )
     )
@@ -139,13 +142,16 @@ def blood_pressure_for_week(event, context):
     cognito_id = event['context']['cognito-identity-id']
     week = event['body-json']['week']
     client = awsapi.DynamoUserData()
-    ls = []
+    d = {}
+    d['average'] = []
+    d['detailed_date'] = []
     for day in form.get_dates_by_week(week=week):
         item = client.average_blood_pressure_for_day(unique_id=cognito_id, date=day)
+        print item
         if item:
-            item.update(dict(date=day))
-            ls.append(item)
-    return ls
+            d['detailed_date'] += item.pop('detailed_list')
+            d['average'].append(item)
+    return d
 
 
 def grocery_url(event, context):
@@ -207,13 +213,16 @@ def weight_for_week(event, context):
     cognito_id = event['context']['cognito-identity-id']
     week = event['body-json']['week']
     client = awsapi.DynamoUserData()
-    ls = []
+    d = {}
+    d['average'] = []
+    d['detailed_date'] = []
     for day in form.get_dates_by_week(week=week):
         item = client.average_weight_for_day(unique_id=cognito_id, date=day)
+        print item
         if item:
-            item.update(dict(date=day))
-            ls.append(item)
-    return ls
+            d['detailed_date'] += item.pop('detailed_list')
+            d['average'].append(item)
+    return d
 
 
 def blood_pressure_input_check(event, context):
@@ -362,32 +371,6 @@ def get_whole_item(event, context):
             week=week,
         )
 
-
-if __name__ == '__main__' and sys.platform == 'darwin':
-    # pprint.pprint(measure_weight(1,1))
-    # pprint.pprint(measure_blood_pressure(1,1))
-
-    # pprint.pprint(percentage(1, 1))
-    pprint.pprint(get_kadia_content({'body-json': {'keyword': 'input_range'}},1))
-    # pprint.pprint(nutrients(1,1))
-    # pprint.pprint(allergies(1,1))
-    # pprint.pprint(habits(1,1))
-    # pprint.pprint(intolerances(1,1))
-    # pprint.pprint(_input_range(1, 1))
-    # pprint.pprint(_diseases(1, 1))
-    #
-    # # pprint.pprint(container_categories(1,1))
-    # # pprint.pprint(weight(1,1))
-    # # pprint.pprint(blood_pressure_for_week(1,1))
-    # # pprint.pprint(blood_pressure_input_check(1, 1))
-    # # pprint.pprint(scan_bls(1, 1))
-    # # pprint.pprint(grocery_url(1, 1))
-    # # pprint.pprint(percentage_food(1, 1))
-    # pprint.pprint(meal_eaten(1,1))
-    # # pprint.pprint(set_shopping_list_dates(1,1))
-    # # pprint.pprint(shopping_list(1,1))
-    # pprint.pprint(_daily_top(1, 1))
-    pass
 
 
 

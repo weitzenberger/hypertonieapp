@@ -11,13 +11,12 @@ parameters and calculate the upper and lower bounds for nutrients.
 
 import abc
 
+from sqlalchemy.sql.expression import select, and_
+
 import constants as c
 import form
 import params
-from sqlalchemy.sql.expression import select, and_
 from dbmodel import HypertensionRecommendation, DGERecommendation, engine
-
-import pprint
 
 
 class Patient(object):
@@ -180,8 +179,7 @@ class HypertensionPatient(Patient):
     be considered in this class.
     """
 
-    def __init__(self, height, weight, birthday, pal, sex, db, days):
-        self._dB = db
+    def __init__(self, height, weight, birthday, pal, sex, days):
         super(HypertensionPatient, self).__init__(height, weight, birthday, pal, sex, days)
         self.recommendation = HypertensionRecommendation
 
@@ -221,28 +219,19 @@ class HypertensionPatient(Patient):
             c.UB: self.cal_need / params.calPerMG['ZF'] * 0.35,
             'UNIT': 'mg'
         }
+
         prot_bounds = {
             c.LB: 0.8 * self.weight * 1000,
             c.UB: 1.6 * self.weight * 1000,
             'UNIT': 'mg'
         }
-        f182_bounds = {
-            c.LB: None,
-            c.UB: self.cal_need * params.part['F182'] / params.calPerMG['ZF'] * 2,
-            'UNIT': 'mg'
-        }
-        f183_bounds = {
-            c.LB: self.cal_need * params.part['F183'] / params.calPerMG['ZF'] / 2,
-            c.UB: None,
-            'UNIT': 'mg'
 
-        }
         fiber_bounds = {
             c.LB: 3e1,
             c.UB: None,
             'UNIT': 'mg'
-
         }
+
         ch_bounds = {
             c.LB: (self.cal_bounds[c.LB] -
                   fat_bounds[c.UB] * params.calPerMG['ZF'] -
@@ -251,23 +240,23 @@ class HypertensionPatient(Patient):
                    fat_bounds[c.LB] * params.calPerMG['ZF'] -
                    prot_bounds[c.LB] * params.calPerMG['ZE']) / params.calPerMG['ZK'],
             'UNIT': 'mg'
-
         }
 
         return dict(GCAL=self.cal_bounds,
                     ZF=fat_bounds,
                     ZE=prot_bounds,
-                   # F182=f182_bounds,
-                   # F183=f183_bounds,
                     ZB=fiber_bounds,
                     ZK=ch_bounds)
 
     @property
     def micro_bounds(self):
-        # bounds = params.bounds.copy()
-        #
-        # a = self._dB.get_dge(age=self.age, sex=self.sex)
-        # bounds.update(a)
+        """Gets micro nutrient bounds from sql databse
+
+        :return:
+        """
+
+        if isinstance(self.days, basestring):
+            raise TypeError('days must be of type list not ' + type(self.days))
 
         conn = engine.connect()
         s = select([self.recommendation.LB,
@@ -275,34 +264,32 @@ class HypertensionPatient(Patient):
                     self.recommendation.NUTRIENT,
                     self.recommendation.UNIT]
                    ).where(
-                and_(
-                    self.age >= self.recommendation.AGE_LB,
-                    self.recommendation.AGE_UB > self.age,
-                    self.sex == self.recommendation.SEX,
-                    self.recommendation.NUTRIENT.in_(params.nutrientsMicroList + ['ZB'])
-                )
+            and_(
+                self.age >= self.recommendation.AGE_LB,
+                self.recommendation.AGE_UB > self.age,
+                self.sex == self.recommendation.SEX,
+                self.recommendation.NUTRIENT.in_(params.nutrientsMicroList + ['ZB'])
             )
+        )
         rows = conn.execute(s)
+
         bounds = {}
         for row in rows:
             dict_ = dict(zip(row.keys(), row.values()))
             key = dict_.pop('NUTRIENT')
             bounds[key] = dict_
-        pprint.pprint(bounds)
-        boundsForWeek = {}
-        if isinstance(self.days, basestring):
-            raise TypeError('days must be of type list not ' + type(self.days))
+
+
         length = len(self.days)
+        bounds_for_week = {}
         for i in bounds.iterkeys():
-            boundsForWeek.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length * 1)
+            bounds_for_week.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length * 0.8)
                                                      if bounds[i][c.LB] else None)
-            boundsForWeek.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length * 1)
+            bounds_for_week.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length * 1.2)
                                                      if bounds[i][c.UB] else None)
-            boundsForWeek.setdefault(i, {})['UNIT'] = bounds[i]['UNIT']
+            bounds_for_week.setdefault(i, {})['UNIT'] = bounds[i]['UNIT']
 
-        # boundsForWeek['VA']['UB'] *= 10
-
-        return boundsForWeek
+        return bounds_for_week
 
     @property
     def splitted_macro_bounds(self):
@@ -341,8 +328,6 @@ class HypertensionPatient(Patient):
         )
 
         return ret_dict
-
-
 
 
 class DGEPatient(HypertensionPatient):

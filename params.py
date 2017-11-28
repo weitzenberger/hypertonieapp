@@ -37,8 +37,6 @@ VE      Vitamin E
 """
 
 from collections import namedtuple
-import constants as C
-
 
 
 # constants for basal metabolism
@@ -124,25 +122,6 @@ age_bound1 = 25
 age_bound2 = 51
 age_bound3 = 65
 
-# micro nutrtition
-bounds = {'EARG':   {C.LB: 5000,    C.UB: None, 'UNIT': u'mg'},
-          'MK':     {C.LB: 3500,    C.UB: None, 'UNIT': u'mg'},
-          'MNA':    {C.LB: 1600,    C.UB: 2400, 'UNIT': u'mg'},
-          'MMG':    {C.LB: 300,     C.UB: None, 'UNIT': u'mg'},
-          'MCA':    {C.LB: 1200,    C.UB: None, 'UNIT': u'mg'},
-          'VC':     {C.LB: 500e03,  C.UB: 1e06, 'UNIT': u'mg'},
-          'VD':     {C.LB: 20.00,   C.UB: None, 'UNIT': u'µg'},
-          'ZB':     {C.LB: 30e3,    C.UB: None, 'UNIT': u'mg'}}
-
-kwargs_cat = {
-    'PL': dict(meat=10, veg=10, grain=10),
-    'SM': dict(fluid=6, primary=6, secondary=6, boost=6),
-    'WM': dict(num=5),
-    'BF': dict(num=10),
-    'SW': dict(bread=5, butter=2, topping=2),
-    'SA': dict(num=5),
-    'SN': dict(num=5)
-}
 
 # fats
 f_sat_ub = 0.1  # 8-10%
@@ -165,157 +144,158 @@ bfLbZe = 10000  # breakfast lower bound ZE
 crit_nut = {'ZK': 40, 'ZB': 2000, 'ZF': 20000, 'FU': 10000, 'ZE': 17000, 'EARG': 800,
             'MK': 300, 'MNA': 120, 'MMG': 30, 'VC': 25000, 'VE': 1000}
 
-crit_nut_op = {'ZK': '>', 'ZB': '>', 'ZF': '>', 'FU': '>', 'ZE': '>', 'EARG': '>',
-               'MK': '>', 'MNA': '<', 'MMG': '>', 'VC': '>', 'VE': '>'}
 
-# nutrientset
 
-nutrientset = ['SBLS', 'GCAL', 'ZK', 'ZB', 'ZF', 'FS', 'FU', 'FP', 'FO6', 'FO3', 'ZE', 'EARG',
-               'MK', 'MNA', 'MMG', 'MCA', 'VC', 'VD', 'VE']
+nutrientsMacroList = [
+    'GCAL',
+    'ZF',
+    'ZE',
+    #'F182',
+    #'F183',
+    'ZK'
+]
 
-#nutrientList = ['GCAL', 'ZK', 'ZB', 'ZF', 'FS', 'FU', 'FP', 'FO6', 'FO3', 'ZE', 'EARG',
-#                'MK', 'MNA', 'MMG', 'MCA', 'VC', 'VD', 'VE']
-
-nutrientsMacroList = ['GCAL',
-                      'ZF',
-                      'ZE',
-                      #'F182',
-                      #'F183',
-                      'ZK']
-
-nutrientsMicroList = ['EARG',
-                      'MMG',
-                      'VC',
-                      'VD',
-                      'VE',
-                      'ZB',
-                      'MCA',
-                      'MCL',
-                      'MCU',
-                      #'MF',
-                      'MFE',
-                      'MJ',
-                      'MK',
-                      'MMN',
-                      'MNA',
-                      #'MP',
-                      'MZN',
-                      'VA',
-                      'VB1',
-                      'VB12',
-                      'VB2',
-                      'VB3A',
-                      'VB5',
-                      'VB6',
-                      'VB7',
-                      'VB9G',
-                      'VK'
-                      ]
+nutrientsMicroList = [
+    'EARG',
+    'MMG',
+    'VC',
+    'VD',
+    'VE',
+    'ZB',
+    'MCA',
+    'MCL',
+    'MCU',
+    #'MF',
+    'MFE',
+    'MJ',
+    'MK',
+    'MMN',
+    'MNA',
+    #'MP',
+    'MZN',
+    'VA',
+    'VB1',
+    'VB12',
+    'VB2',
+    'VB3A',
+    'VB5',
+    'VB6',
+    'VB7',
+    'VB9G',
+    'VK'
+]
 
 nutrientList = nutrientsMacroList + nutrientsMicroList
 
-BLS2gramm = { 'GCAL': 1,
-              'ZF': 1e-3,
-              'ZE': 1e-3,
-              'F182': 1e-3,
-              'F183': 1e-3,
-              'ZK': 1e-3,
-              'EARG': 1e-3,
-              'MMG': 1e-3,
-              'VC': 1e-6,
-              'VD': 1e-6,
-              'VE': 1e-6,
-              'ZB': 1e-3,
-              'MCA': 1e-3,
-              'MCL': 1e-3,
-              'MCU': 1e-6,
-              'MF': 1e-6,
-              'MFE': 1e-6,
-              'MJ': 1e-6,
-              'MK': 1e-3,
-              'MMN': 1e-6,
-              'MNA': 1e-3,
-              'MP': 1e-3,
-              'MZN': 1e-6,
-              'VA': 1e-6,
-              'VB1': 1e-6,
-              'VB12': 1e-6,
-              'VB2': 1e-6,
-              'VB3A': 1e-6,
-              'VB5': 1e-6,
-              'VB6': 1e-6,
-              'VB7': 1e-6,
-              'VB9G': 1e-6,
-              'VK': 1e-6}
+BLS2gramm = {
+    'GCAL': 1,
+    'ZF': 1e-3,
+    'ZE': 1e-3,
+    'F182': 1e-3,
+    'F183': 1e-3,
+    'ZK': 1e-3,
+    'EARG': 1e-3,
+    'MMG': 1e-3,
+    'VC': 1e-6,
+    'VD': 1e-6,
+    'VE': 1e-6,
+    'ZB': 1e-3,
+    'MCA': 1e-3,
+    'MCL': 1e-3,
+    'MCU': 1e-6,
+    'MF': 1e-6,
+    'MFE': 1e-6,
+    'MJ': 1e-6,
+    'MK': 1e-3,
+    'MMN': 1e-6,
+    'MNA': 1e-3,
+    'MP': 1e-3,
+    'MZN': 1e-6,
+    'VA': 1e-6,
+    'VB1': 1e-6,
+    'VB12': 1e-6,
+    'VB2': 1e-6,
+    'VB3A': 1e-6,
+    'VB5': 1e-6,
+    'VB6': 1e-6,
+    'VB7': 1e-6,
+    'VB9G': 1e-6,
+    'VK': 1e-6
+}
 
 assignUnit = {
-                'GCAL': 1,
-               'ZF': 1,
-               'ZE': 1,
-               'F182': 1,
-               'F183': 1,
-               'ZK': 1,
-              'EARG': 1e3,
-              'MMG': 1e3,
-              'VC': 1e6,
-              'VD': 1e6,
-              'VE': 1e6,
-              'ZB': 1,
-              'MCA': 1e3,
-              'MCL': 1e3,
-              'MCU': 1e6,
-             # 'MF': ,
-              'MFE': 1e3,
-              'MJ': 1e6,
-              'MK': 1e3,
-              'MMN': 1e6,
-              'MNA': 1e3,
-              'MP': 1e3,
-              'MZN': 1e3,
-              'VA': 1e6,
-              'VB1': 1e6,
-              'VB12': 1e6,
-              'VB2': 1e6,
-              'VB3A': 1e6,
-              'VB5': 1e6,
-              'VB6': 1e6,
-              'VB7': 1e6,
-              'VB9G': 1e6,
-              'VK': 1e6}
+    'GCAL': 1,
+    'ZF': 1,
+    'ZE': 1,
+    'F182': 1,
+    'F183': 1,
+    'ZK': 1,
+    'EARG': 1e3,
+    'MMG': 1e3,
+    'VC': 1e6,
+    'VD': 1e6,
+    'VE': 1e6,
+    'ZB': 1,
+    'MCA': 1e3,
+    'MCL': 1e3,
+    'MCU': 1e6,
+    # 'MF': ,
+    'MFE': 1e3,
+    'MJ': 1e6,
+    'MK': 1e3,
+    'MMN': 1e6,
+    'MNA': 1e3,
+    'MP': 1e3,
+    'MZN': 1e3,
+    'VA': 1e6,
+    'VB1': 1e6,
+    'VB12': 1e6,
+    'VB2': 1e6,
+    'VB3A': 1e6,
+    'VB5': 1e6,
+    'VB6': 1e6,
+    'VB7': 1e6,
+    'VB9G': 1e6,
+    'VK': 1e6
+}
 
 switch_unit = {1: u'g',
                1e3: u'mg',
                1e6: u'µm'}
 
-
 switch_unit_inv = {v: k for k, v in switch_unit.iteritems()}
+switch_unit_inv['kcal'] = 1
 
 unit = {k: switch_unit[v] for (k, v) in assignUnit.iteritems()}
 
 unit['GCAL'] = u'kcal'
 
-
 default_nutrient_checked_dict = {key: {'VAL': 0.0, 'UNIT': unit[key]} for key in nutrientList}
-
-
 
 crit_time = 10  # in days
 
-habits = ['VEGAN', 'VEGGIE']
-allergies = ['AL_EGG',
-             'AL_PEANUTS',
-             'AL_CRUSTACEAN',
-             'AL_CELERY',
-             'AL_SOY',
-             'AL_FISH',
-             'AL_SQUID',
-             'AL_NUTS',
-             'AL_MUSTARD',
-             'AL_SESAM'
-             ]
+habits = [
+    'VEGAN',
+    'VEGGIE'
+]
 
-intolerances = ['IN_GLUT',
-                'IN_LAKT']
+allergies = [
+    'AL_EGG',
+    'AL_PEANUTS',
+    'AL_CRUSTACEAN',
+    'AL_CELERY',
+    'AL_SOY',
+    'AL_FISH',
+    'AL_SQUID',
+    'AL_NUTS',
+    'AL_MUSTARD',
+    'AL_SESAM'
+]
+
+intolerances = [
+    'IN_GLUT',
+    'IN_LAKT'
+]
 
 
 meal_plan_1 = "Schau Dir meine Empfehlungen an."
@@ -335,8 +315,4 @@ denutritionized = [
     'DE_GLUT',
     'DE_LAKT'
 ]
-
-
-fieldnames = ['male19to25', 'male25to51', 'male51to65', 'male65plus', 'female19to25', 'female25to51', 'female51to65', 'female65plus']
-
 

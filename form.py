@@ -22,7 +22,6 @@ import dateutil.parser
 import collections
 
 
-
 decimal.getcontext().prec = 10
 
 
