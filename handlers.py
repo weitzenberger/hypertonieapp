@@ -53,7 +53,7 @@ def regenerate(event, context):
 
     cognito_id = event['context']['cognito-identity-id']
     date = event['body-json']['date']
-    meal_key = event['body-json']['meal_key']
+    meal_key = event['body-json'].get('meal_key')
     container_key = event['body-json']['container_key']
 
     with RegenerateManager(

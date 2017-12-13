@@ -13,6 +13,7 @@ store the results in a proper data structure.
 
 import array
 import collections
+import fractions
 import pprint
 
 import pulp
@@ -21,7 +22,7 @@ from sqlalchemy.sql.expression import select
 import form
 import params
 import constants as c
-from dbmodel import MealComposition, BLS, engine
+from dbmodel import MealComposition, BLS, StandardBLS, engine
 
 
 class StandardConstraint(object):
@@ -92,7 +93,7 @@ class Modeller(object):
                        plan are fixed as a constant (add_meal, add_day, add_week)
     """
 
-    def __init__(self, model, days, bounds, nutrientMicroList=params.nutrientsMicroList,
+    def __init__(self, model, days, bounds, nutrientMicroList=params.nutrientList - params.nutrientsMacroList,
                  nutrientMacroList=params.nutrientsMacroList, tol=params.tol):
         """
 
@@ -124,7 +125,7 @@ class Modeller(object):
         self.bounds = bounds
         self.nutrientMicroList = nutrientMicroList
         self.nutrientMacroList = nutrientMacroList
-        self.nutrientList = nutrientMicroList + nutrientMacroList
+        self.nutrientList = params.nutrientList
         self.tol = tol
         self._tree = lambda: collections.defaultdict(self._tree)
         self.variable = self._tree()
@@ -223,8 +224,6 @@ class Modeller(object):
                     sum_local = None
                     current_sum_for_nutrient.append(self.all_meals[container_key][meal_key][n] * variable)
                 if n == local_nut:
-                    print 'this is add_meal'
-                    print add_meal
                     sum_local = current_sum_for_nutrient + ([add_meal[n]['VAL']] if add_meal else [])
 
                 self.sumGlobal.setdefault(day, {}).setdefault(n, []).append(current_sum_for_nutrient)
@@ -262,7 +261,7 @@ class Modeller(object):
                 )
                 day_constraint.add_to_model(model=self.model)
 
-        for n in self.nutrientMicroList:
+        for n in self.nutrientList - self.nutrientMacroList:
             week_constraint = StandardConstraint(
                 name=self._join('TOT', 'GLOB', n),
                 sum=[self.sumGlobal[day][n] for day in self.days] + ([add_week[n]] if add_week else []),
@@ -454,16 +453,38 @@ class Evaluator(object):
 
     def get_vals_by_sbls(self, sbls, amount):
         conn = engine.connect()
-        s = select([BLS.__getattribute__(BLS, n) for n in params.nutrientList + ['ST']]).where(BLS.SBLS == sbls)
+        s = select([BLS.__getattribute__(BLS, n) for n in params.nutrientList | {'ST'}]).where(BLS.SBLS == sbls)
         rows = conn.execute(s)
         for row in rows:
             d = dict(zip(row.keys(), row.values()))
             for n in params.nutrientList:
                 d[n] *= float(amount) / 100.0
+
+        s = select([StandardBLS.__getattribute__(StandardBLS, column)
+                    for column in ['NAME', 'UNIT', 'PORT_ALT', 'PLURAL', 'PORT_EQ']]).where(StandardBLS.SBLS == sbls)
+
+        portion_dict ={}
+        rows = conn.execute(s)
+        for row in rows:
+            portion_dict = dict(zip(row.keys(), row.values()))
+
+        rel_amount = fractions.Fraction(float(amount) / float(portion_dict['PORT_ALT']))
+        try:
+            if rel_amount > 1:
+                portion_size = str(rel_amount) + " " + portion_dict.pop('PLURAL') + " | " + amount + " " + portion_dict['UNIT']
+            else:
+                portion_size = str(rel_amount) + " " + portion_dict.pop('PORT_EQ') + " | " + amount + " " + portion_dict['UNIT']
+        except:
+            if portion_dict['UNIT']:
+                portion_size = amount + " " + portion_dict['UNIT']
+            else:
+                portion_size = amount + " g"
+
+        d['portion_size'] = portion_size
+
         return d
 
     def evaluate_meals_for_container(self):
-        pprint.pprint(self.meals)
         for day, day_plan in self.variable.iteritems():
             for container_key, container_content in day_plan.iteritems():
                 for meal_key, variable in container_content.iteritems():
@@ -473,6 +494,7 @@ class Evaluator(object):
                         self.plan[day][container_key][meal_key]['varValue'] = variable.varValue
                         self.plan[day][container_key][meal_key]['ingredients'].update(self.get_meal_vals(meal_key))
                         self.meals_checked[day][container_key][meal_key] = False
+                        amount = 0
 
                         for sbls_key, sbls_value in self.plan[day][container_key][meal_key]['ingredients'].iteritems():
                             self.shoppinglist[day][sbls_key].setdefault('VAL', 0.0)
@@ -480,6 +502,8 @@ class Evaluator(object):
                             self.shoppinglist[day][sbls_key].setdefault('ST', sbls_value['ST'])
                             self.shoppinglist[day][sbls_key].setdefault('UNIT', 'g')  # TODO: Unit aus STA table einfügen
                             self.shoppinglist[day][sbls_key]['VAL'] += sbls_value['AMOUNT']
+                            amount = sbls_value['AMOUNT']
+                        self.plan[day][container_key][meal_key]['AMOUNT'] = amount
 
                         for n in params.nutrientList:
                             self.plan[day][container_key][meal_key]['nutrients'][n]['UNIT'] = params.unit[n]

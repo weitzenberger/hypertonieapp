@@ -18,9 +18,13 @@ Created on 10.11.17
 
 import boto3
 import pprint
-client = boto3.client('cognito-identity')
-
-response = client.describe_identity(
-    IdentityId='eu-central-1:099a01b6-76ae-41eb-ad05-7feec7ff1f3a'
-)
-pprint.pprint(response)
+# client = boto3.client('cognito-identity')
+#
+# response = client.describe_identity(
+#     IdentityId='eu-central-1:099a01b6-76ae-41eb-ad05-7feec7ff1f3a'
+# )
+# pprint.pprint(response)
+ls = []
+for i in [1,2,3,4]:
+    ls.append(i)
+print ls

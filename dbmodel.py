@@ -622,6 +622,7 @@ class Nutrients(Base):
     NAME = Column(String(50))
     UNIT = Column(String(50))
     CATEGORY = Column(String(50))
+    INFO = Column(String(1000))
     # UNIT_BLS = Column(String(50))
 
 

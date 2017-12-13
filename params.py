@@ -146,20 +146,20 @@ crit_nut = {'ZK': 40, 'ZB': 2000, 'ZF': 20000, 'FU': 10000, 'ZE': 17000, 'EARG':
 
 
 
-nutrientsMacroList = [
+nutrientsMacroList = {
     'GCAL',
     'ZF',
     'ZE',
     #'F182',
     #'F183',
     'ZK'
-]
+}
 
-nutrientsMicroList = [
-    'EARG',
+nutrientsMicroList = {
+    #'EARG',
     'MMG',
     'VC',
-    'VD',
+    # 'VD',
     'VE',
     'ZB',
     'MCA',
@@ -173,7 +173,7 @@ nutrientsMicroList = [
     'MNA',
     #'MP',
     'MZN',
-    'VA',
+    # 'VA',
     'VB1',
     'VB12',
     'VB2',
@@ -183,9 +183,9 @@ nutrientsMicroList = [
     'VB7',
     'VB9G',
     'VK'
-]
+}
 
-nutrientList = nutrientsMacroList + nutrientsMicroList
+nutrientList = nutrientsMacroList | nutrientsMicroList
 
 BLS2gramm = {
     'GCAL': 1,

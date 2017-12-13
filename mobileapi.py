@@ -93,6 +93,54 @@ def _daily_top():
     rand_int = random.randint(0, len(ls)-1)
     return ls[rand_int]
 
+def _nutrients():
+    ls = _get_all_entries(engine=db.engine, model=db.Nutrients)
+    conn = engine.connect()
+    ls = []
+
+    def convert_rows(rows, cat_key):
+        items = []
+        for row in rows:
+            dict_ = dict(zip(row.keys(), row.values()))
+            obj = {'unit': dict_.pop('UNIT'),
+             'name': dict_.pop('NAME'),
+             'key': dict_.pop('KEYWORD'),
+             'info': dict_.pop('INFO')
+             }
+            items.append(obj)
+        return {
+            'catKey': cat_key,
+            'name': dict_['CATEGORY'],
+            'items': items
+        }
+
+    s = select([db.Nutrients]).where(db.Nutrients.CATEGORY == 'Energie')
+    rows = conn.execute(s)
+    ls.append(convert_rows(rows, cat_key='EN'))
+
+    s = select([db.Nutrients]).where(db.Nutrients.CATEGORY == 'Makronährstoffe')
+    rows = conn.execute(s)
+    ls.append(convert_rows(rows, cat_key='MA'))
+
+    s = select([db.Nutrients]).where(db.Nutrients.CATEGORY == 'Spurenelemente')
+    rows = conn.execute(s)
+    ls.append(convert_rows(rows, cat_key='SP'))
+
+    s = select([db.Nutrients]).where(db.Nutrients.CATEGORY == 'Mineralstoffe')
+    rows = conn.execute(s)
+    ls.append(convert_rows(rows, cat_key='MI'))
+
+    s = select([db.Nutrients]).where(db.Nutrients.CATEGORY == 'Vitamine')
+    rows = conn.execute(s)
+    ls.append(convert_rows(rows, cat_key='VI'))
+
+
+
+    return ls
+
+if __name__ == '__main__':
+    pprint.pprint(_nutrients())
+
 
 def scan_bls(event, context):
     search_words = event['body-json']['keyword']
@@ -119,7 +167,7 @@ def get_kadia_content(event, context):
     print event
     keyword = event['body-json']['keyword']
     if keyword == "nutrients":
-        return _get_all_entries(engine=db.engine, model=db.Nutrients)
+        return _nutrients()
     elif keyword == "allergies":
         return _get_all_entries(engine=db.engine, model=db.Allergies)
     elif keyword == "habits":
@@ -147,7 +195,6 @@ def blood_pressure_for_week(event, context):
     d['detailed_date'] = []
     for day in form.get_dates_by_week(week=week):
         item = client.average_blood_pressure_for_day(unique_id=cognito_id, date=day)
-        print item
         if item:
             d['detailed_date'] += item.pop('detailed_list')
             d['average'].append(item)
@@ -218,7 +265,6 @@ def weight_for_week(event, context):
     d['detailed_date'] = []
     for day in form.get_dates_by_week(week=week):
         item = client.average_weight_for_day(unique_id=cognito_id, date=day)
-        print item
         if item:
             d['detailed_date'] += item.pop('detailed_list')
             d['average'].append(item)
@@ -265,12 +311,14 @@ def meal_eaten(event, context):
     date = event['body-json']['date']
     container_key = event['body-json']['container_key']
     meal_key = event['body-json']['meal_key']
+    put_meal = event['body-json']['put_meal']
     client = awsapi.DynamoNutrition()
     response = client.meal_eaten(
         unique_id=cognito_id,
         date=date,
         container_key=container_key,
-        meal_key=meal_key
+        meal_key=meal_key,
+        put_meal=put_meal
     )
     return response
 
@@ -371,6 +419,40 @@ def get_whole_item(event, context):
             week=week,
         )
 
+def like_and_dislike_list(event, context):
+    cognito_id = event['context']['cognito-identity-id']
+
+    client = awsapi.DynamoUserData()
+    return client.like_and_dislike_list(unique_id=cognito_id)
+
+def nutrition_for_week(event, context):
+    cognito_id = event['context']['cognito-identity-id']
+    week = event['body-json']['week']
+    client = awsapi.DynamoNutrition()
+
+    NUTRITION_MEDIUM = 50
+    NUTRITION_HIGH = 100
+
+    ls = []
+    for date in form.get_dates_by_week(week=week):
+        percentage = client.percentage_food(
+            unique_id=cognito_id,
+            date=date
+        )
+        if percentage < NUTRITION_MEDIUM:
+            status = 'low'
+        elif percentage < NUTRITION_HIGH:
+            status = 'medium'
+        elif percentage == NUTRITION_HIGH:
+            status = 'full'
+        ls.append(
+            dict(
+                date=date,
+                percentage=percentage,
+                status=status
+            )
+        )
+    return ls
 
 
 

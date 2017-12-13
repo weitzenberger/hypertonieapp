@@ -10,6 +10,7 @@ parameters and calculate the upper and lower bounds for nutrients.
 """
 
 import abc
+import sys
 
 from sqlalchemy.sql.expression import select, and_
 
@@ -42,6 +43,8 @@ class Patient(object):
         self.height = float(height)
         self.weight = float(weight)
         self.pal = float(pal)
+        if sys.platform == 'darwin':
+            self.pal = 1.8
         self.BMI = self.weight / (self.height ** 2) * 100 ** 2
         self.sex = sex
         self.birthday = birthday
@@ -268,7 +271,7 @@ class HypertensionPatient(Patient):
                 self.age >= self.recommendation.AGE_LB,
                 self.recommendation.AGE_UB > self.age,
                 self.sex == self.recommendation.SEX,
-                self.recommendation.NUTRIENT.in_(params.nutrientsMicroList + ['ZB'])
+                self.recommendation.NUTRIENT.in_(params.nutrientsMicroList)
             )
         )
         rows = conn.execute(s)
@@ -283,13 +286,25 @@ class HypertensionPatient(Patient):
         length = len(self.days)
         bounds_for_week = {}
         for i in bounds.iterkeys():
-            bounds_for_week.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length * 0.8)
+            bounds_for_week.setdefault(i, {})[c.LB] = ((bounds[i][c.LB] * length * 0.7)
                                                      if bounds[i][c.LB] else None)
-            bounds_for_week.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length * 1.2)
+            bounds_for_week.setdefault(i, {})[c.UB] = ((bounds[i][c.UB] * length * 1.3)
                                                      if bounds[i][c.UB] else None)
             bounds_for_week.setdefault(i, {})['UNIT'] = bounds[i]['UNIT']
 
+        # bounds_for_week['VA']['UB'] *= 10
+
         return bounds_for_week
+
+    def scale_micro(self, percentage):
+        """
+
+        :param percentage:
+        :return:
+        """
+        if self.cal_need > 2500:
+            return 1
+        return 1 - (2500 - self.cal_need) / 100 * percentage / 100
 
     @property
     def splitted_macro_bounds(self):
@@ -333,14 +348,13 @@ class HypertensionPatient(Patient):
 class DGEPatient(HypertensionPatient):
     """Class for Hypertension Patients only with DGE suggestions."""
 
-    def __init__(self, height, weight, birthday, pal, sex, db, days):
+    def __init__(self, height, weight, birthday, pal, sex, days):
         super(DGEPatient, self).__init__(
             height=height,
             weight=weight,
             birthday=birthday,
             pal=pal,
             sex=sex,
-            db=db,
             days=days
         )
         self.recommendation = DGERecommendation

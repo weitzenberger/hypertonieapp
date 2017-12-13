@@ -3,6 +3,7 @@
 """
 Created on 09.11.17
 
+Uncomment lines to update tables.
 
 @author: L.We
 """
@@ -23,7 +24,7 @@ PATH5 = '/Users/l.we/Dropbox/Exist Antrag/11_Datenbank/BLS/BLS_3.02_Variablennam
 PATH6 = '/Users/l.we/Dropbox/Exist Antrag/11_Datenbank/Rezept-DB/aktuelle Version/Datenbank.xlsx'
 PATH7 = '/Users/l.we/Dropbox/Exist Antrag/11_Datenbank/Rezept-DB/Zielwerte/Zielwerte Hypertonie.xls'
 
-# updater.update_table(path=PATH, sheet_index=4, tbl=Nutrients, session=session)
+updater.update_table(path=PATH, sheet_index=4, tbl=Nutrients, session=session)
 # updater.update_table(path=PATH, sheet_index=2, tbl=Habits, session=session)
 # updater.update_table(path=PATH, sheet_index=1, tbl=Intolerances, session=session)
 # updater.update_table(path=PATH, sheet_index=0, tbl=Allergies, session=session)
@@ -35,6 +36,6 @@ PATH7 = '/Users/l.we/Dropbox/Exist Antrag/11_Datenbank/Rezept-DB/Zielwerte/Zielw
 # updater.update_table(path=PATH6, sheet_index=0, tbl=StandardBLS, session=session)
 # updater.update_table(path=PATH6, sheet_index=1, tbl=MealDescription, session=session)
 # updater.update_table(path=PATH6, sheet_index=2, tbl=MealComposition, session=session)
-updater.update_table(path=PATH7, sheet_index=1, tbl=HypertensionRecommendation, session=session)
+# updater.update_table(path=PATH7, sheet_index=1, tbl=HypertensionRecommendation, session=session)
 
 

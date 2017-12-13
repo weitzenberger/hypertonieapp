@@ -96,16 +96,16 @@ functions:
           enabled: false
 
 
-  post_plan:
-    handler: handlers.post_plan
-    events:
-      - http:
-          path: post_plan
-          method: POST
-          integration: lambda
-          authorizer:
-            type: aws_iam
-          cors: true
+#  post_plan:
+#    handler: handlers.post_plan
+#    events:
+#      - http:
+#          path: post_plan
+#          method: POST
+#          integration: lambda
+#          authorizer:
+#            type: aws_iam
+#          cors: true
 
 
   scan_bls:
@@ -120,14 +120,14 @@ functions:
           cors: true
 
 
-  reset_all_user_nutrients:
-    handler: handlers.reset_all_user_nutrients
-    memorySize: 128
-    description: deletes all userNutrition datasets for all users every night at XXX o'clock
-    events:
-      - schedule:
-          rate: cron(0 0 * * ? *)
-          enabled: true
+#  reset_all_user_nutrients:
+#    handler: handlers.reset_all_user_nutrients
+#    memorySize: 128
+#    description: deletes all userNutrition datasets for all users every night at XXX o'clock
+#    events:
+#      - schedule:
+#          rate: cron(0 0 * * ? *)
+#          enabled: true
 
 #  test_ddb_stream:
 #    handler: catchstream.test_ddb_stream
@@ -324,5 +324,26 @@ functions:
           authorizer: aws_iam
           integration: lambda
           cors: true
+
+  like_and_dislike_list:
+    handler: mobileapi.like_and_dislike_list
+    events:
+      - http:
+          path: get/like_and_dislike_list
+          method: GET
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
+  nutrition_for_week:
+    handler: mobileapi.nutrition_for_week
+    events:
+      - http:
+          path: overview/nutrition
+          method: POST
+          authorizer: aws_iam
+          integration: lambda
+          cors: true
+
 
 

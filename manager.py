@@ -12,6 +12,7 @@ a new plan or modify existing plans.
 
 import abc
 import traceback
+import sys
 
 import collections
 
@@ -193,13 +194,26 @@ class ModelManager(object):
 
         :return: list
         """
-
+        ls_cond_intol = []
+        ls_cond_al = []
+        ls_cond_hab = []
         cognito_handler = awsapi.Cognito()
         data_sets = cognito_handler.get_records_as_dict(dataset=c.DATASET_VITAL, cognito_id=self.cognitoId)
-
-        ls_cond_intol = [mealdescription.c.__getattr__(element) == None for element in data_sets['intolerances']]
-        ls_cond_al = [mealdescription.c.__getattr__(element) == None for element in data_sets['allergies']]
-        ls_cond_hab = [mealdescription.c.__getattr__(element) == True for element in data_sets['habits']]
+        for element in data_sets['intolerances']:
+            try:
+                ls_cond_intol.append(mealdescription.c.__getattr__(element) == None)
+            except:
+                pass
+        for element in data_sets['allergies']:
+            try:
+                ls_cond_al.append(mealdescription.c.__getattr__(element) == None)
+            except:
+                pass
+        for element in data_sets['habits']:
+            try:
+                ls_cond_hab.append(mealdescription.c.__getattr__(element) == True)
+            except:
+                pass
 
         if not 'IN_LAKT' in data_sets['intolerances']:
             ls_cond_intol.append(mealdescription.c.DE_LAKT == None)
@@ -208,7 +222,7 @@ class ModelManager(object):
 
         print data_sets
 
-        return ls_cond_al + ls_cond_hab + ls_cond_intol
+        return [] #ls_cond_al + ls_cond_intol + ls_cond_hab
 
 
 class RegenerateManager(ModelManager):
@@ -315,6 +329,19 @@ class RegenerateManager(ModelManager):
 
         :return: self
         """
+        add_day = self.userNutritionStore.get_from_nutrients_for_day(
+            unique_id=self.cognitoId,
+            date=self.event['body-json'][c.DATE],
+            top_level=c.NUTRIENTS_FOR_DAY
+        )
+        add_week = self.userNutritionStore.get_from_nutrients_for_week(
+            unique_id=self.cognitoId,
+            date=self.event['body-json'][c.DATE],
+            toplevel=c.NUTRIENTS_FOR_WEEK
+        )
+
+        params.nutrientList = set(add_week.keys()) & set(add_day.keys()) & params.nutrientList
+
         boundsForWeek = self.userNutritionStore.get_reduced_bounds_for_week(
             unique_id=self.cognitoId,
             date=self.event['body-json'][c.DATE],
@@ -346,16 +373,7 @@ class RegenerateManager(ModelManager):
                 top_level=c.NUTRIENTS_FOR_CONTAINER,
                 second_level=self.event['body-json']['container_key']
             )
-        add_day = self.userNutritionStore.get_from_nutrients_for_day(
-            unique_id=self.cognitoId,
-            date=self.event['body-json'][c.DATE],
-            top_level=c.NUTRIENTS_FOR_DAY
-        )
-        add_week = self.userNutritionStore.get_from_nutrients_for_week(
-            unique_id=self.cognitoId,
-            date=self.event['body-json'][c.DATE],
-            toplevel=c.NUTRIENTS_FOR_WEEK
-        )
+
         self.addWeek = {}
         self.addDay = {}
         self.bounds = self._tree()
@@ -437,12 +455,19 @@ class RegenerateManager(ModelManager):
                 unique_id=self.cognitoId,
                 nutrients=nutrients
             )
+            self.userNutritionStore.update_meal_checked_list(
+                unique_id=self.cognitoId,
+                date=self.event['body-json'][c.DATE],
+                nutrients=nutrients
+            )
         else:
             print self.problem.fixObjective
             raise RuntimeError('LP Problem could not be solved. Plan remains unchanged.')
 
-        self.managerLog = dict(LpStatus=pulp.LpStatus[self.problem.status],
-                               Time=self.problem.solutionTime)
+        self.managerLog = dict(lp_status=pulp.LpStatus[self.problem.status],
+                               time=self.problem.solutionTime)
+        if pulp.LpStatus[self.problem.status] != 'Optimal':
+            self.managerLog.update(dict(message="Leider kann für die gewählten Präferenzen kein Plan generiert werden."))
 
         return None
 
@@ -489,6 +514,9 @@ class GenerateManager(ModelManager):
             sex=data_set_vital['gender'],
             days=days
         )
+        print 'patient'
+        print self.actualPatient.cal_need
+        print self.actualPatient.scale_micro(5)
         self._set_splitted_macro_bounds()
         self.modeller = Modeller(
             model=self.problem,
@@ -516,7 +544,7 @@ class GenerateManager(ModelManager):
         traceback.print_exc()
         self.modeller.set_global(needs=self.actualPatient.macro_bounds)
 
-
+        print 'start solving'
         self.problem.solve(
             solver=pulp.PULP_CBC_CMD(
                 maxSeconds=self.timeOut,
@@ -525,12 +553,11 @@ class GenerateManager(ModelManager):
                 strong=self.strongBranching
             )
         )
-        print 'solved'
 
         if pulp.LpStatus[self.problem.status] == 'Optimal':
             cognito_id = self.cognitoId
-            # Optimalcognito_id = "eu-central-1:0265ffa7-f55b-4591-9cd8-c329f076fe0a"
-            # # cognito_id = 'TEST_ID'
+            if sys.platform == 'darwin':
+                cognito_id = 'TEST_ID'
             self.eval = Evaluator(
                 model=self.problem,
                 meals=self.modeller.all_meals,
@@ -560,11 +587,13 @@ class GenerateManager(ModelManager):
         else:
             print self.problem.fixObjective
             print pulp.LpStatus[self.problem.status]
-            print self.problem.solutionTime
+            # print self.problem.solutionTime
             raise RuntimeError('LP Problem could not be solved. No plan is stored for this user.')
 
-        self.managerLog = dict(LpStatus=pulp.LpStatus[self.problem.status],
-                               Time=self.problem.solutionTime)
+        self.managerLog = dict(lp_status=pulp.LpStatus[self.problem.status],
+                               time=self.problem.solutionTime)
+        if pulp.LpStatus[self.problem.status] != 'Optimal':
+            self.managerLog.update(dict(message="Es können keine weiteren Änderungen am Plan vorgenommen werden."))
         return None
 
     def _set_splitted_macro_bounds(self):
