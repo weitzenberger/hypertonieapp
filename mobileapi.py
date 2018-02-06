@@ -403,6 +403,12 @@ def measure_weight(event, context):
 
     return client.insert_weight(unique_id=cognito_id, date=date, weight=weight)
 
+def delete_weight(event, context):
+    cognito_id = event['context']['cognito-identity-id']
+    date = event['body-json']['date']
+    client = awsapi.DynamoUserData()
+
+    return client.delete_weight(date=date, unique_id=cognito_id)
 
 def get_whole_item(event, context):
     cognito_id = event['context']['cognito-identity-id']

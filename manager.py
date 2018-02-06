@@ -216,11 +216,18 @@ class ModelManager(object):
 
         :return: list
         """
+
         ls_cond_intol = []
         ls_cond_al = []
         ls_cond_hab = []
+
         cognito_handler = awsapi.Cognito()
         data_sets = cognito_handler.get_records_as_dict(dataset=c.DATASET_VITAL, cognito_id=self.cognitoId)
+
+        # Da in data_set nicht immer 'tolerances' durch die App hinterlegt ist (wie eigentlich abgesprochen)
+        # prüf ich mit ".get()", ob der Eintrag hinterlegt ist. Eine Else Bedingung für den Fall das gar nichts
+        # hinterlegt ist fehlte. Für diesen Fall sollen weder "entlaktosifizierte" Gerichte, noch "entglutenisierte"
+        # Gerichte vorkommen.
         if data_sets.get('intolerances'):
             for element in data_sets['intolerances']:
                 try:
@@ -231,12 +238,17 @@ class ModelManager(object):
                 ls_cond_intol.append(mealdescription.c.DE_LAKT == None)
             if not 'IN_GLU' in data_sets['intolerances']:
                 ls_cond_intol.append(mealdescription.c.DE_GLU == None)
+        else:
+            ls_cond_intol.append(mealdescription.c.DE_LAKT == None)
+            ls_cond_intol.append(mealdescription.c.DE_GLU == None)
+
         if data_sets.get('allergies'):
             for element in data_sets['allergies']:
                 try:
                     ls_cond_al.append(mealdescription.c.__getattr__(element) == None)
                 except:
                     pass
+
         if data_sets.get('habits'):
             for element in data_sets['habits']:
                 if element == 'VEGAN':
@@ -369,7 +381,7 @@ class RegenerateManager(ModelManager):
 
         params.nutrientList = set(add_week.keys()) & set(add_day.keys()) & params.nutrientList
 
-        boundsForWeek = self.userNutritionStore.get_reduced_bounds_for_week(
+        bounds_for_week = self.userNutritionStore.get_reduced_bounds_for_week(
             unique_id=self.cognitoId,
             date=self.event['body-json'][c.DATE],
             redLb=0.8
@@ -412,11 +424,11 @@ class RegenerateManager(ModelManager):
             self.addDay[n] = add_day[n]['VAL'] / params.switch_unit_inv[add_day[n]['UNIT']] / params.BLS2gramm[n] \
                              - self.element[n]['VAL'] / params.switch_unit_inv[add_day[n]['UNIT']] / params.BLS2gramm[n]
             if self.bounds[n]['UB']:
-                self.bounds[n]['UB'] = boundsForWeek[n]['UB'] / params.switch_unit_inv[boundsForWeek[n]['UNIT'] ] / params.BLS2gramm[n]
+                self.bounds[n]['UB'] = bounds_for_week[n]['UB'] / params.switch_unit_inv[bounds_for_week[n]['UNIT'] ] / params.BLS2gramm[n]
             else:
                 self.bounds[n]['UB'] = None
             if self.bounds[n]['LB']:
-                self.bounds[n]['LB'] = boundsForWeek[n]['LB'] / params.switch_unit_inv[boundsForWeek[n]['UNIT'] ] / params.BLS2gramm[n]
+                self.bounds[n]['LB'] = bounds_for_week[n]['LB'] / params.switch_unit_inv[bounds_for_week[n]['UNIT'] ] / params.BLS2gramm[n]
             else:
                 self.bounds[n]['LB'] = None
 

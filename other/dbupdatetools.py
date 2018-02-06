@@ -280,6 +280,7 @@ def create_and_insert_de_meal(meal_key, meal_des, meal_ing, de_glut=False, de_la
             de_meal_key = 'DE_G_' + meal_key
         elif de_lakt:
             de_meal_key = 'DE_L_' + meal_key
+            print "LAKT_FREE"
         else:
             de_meal_key = meal_key
         return dict(

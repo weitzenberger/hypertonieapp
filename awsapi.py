@@ -862,6 +862,9 @@ class DynamoUserData(object):
 
         return d
 
+    def delete_weight(self, date, unique_id):
+        pass
+
 
 class DynamoNutrition(object):
     """
