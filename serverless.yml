@@ -8,7 +8,7 @@ provider:
   useOpenApi: true
   runtime: python2.7
   region: eu-central-1
-  memorysize: 128
+  memorysize: 1024
   stage: expo
   timeout: 6
 

@@ -159,7 +159,7 @@ def generate_for_next_week(event, context):
 
 if __name__ == '__main__' and sys.platform == 'darwin':
     event = dict(
-        unique_id="eu-central-1:0265ffa7-f55b-4591-9cd8-c329f076fe0a",
+        unique_id="eu-central-1:0dfa8096-875a-453f-97bf-9df12c3d2a0a",
         thisweek=True
     )
     # print post_plan({'body': {'ingredient': {'H862100': 50}, 'unique_id_as_arg': 'asdf'}}, None)

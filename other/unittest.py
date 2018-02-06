@@ -12,9 +12,11 @@ import handlers
 
 placeholder_id = 'TEST_ID'
 placeholder_id = 'eu-central-1:0265ffa7-f55b-4591-9cd8-c329f076fe0a'
+placeholder_id = "eu-central-1:0dfa8096-875a-453f-97bf-9df12c3d2a0a"
+
 placeholder_week = '2017-W48'
-placeholder_date = '2017-12-12'
-placeholder_container = 'BF'
+placeholder_date = '2018-01-30'
+placeholder_container = 'LU'
 placeholder_meal = 'M0032'
 placeholder_date_list = ['2017-11-16', '2017-11-17', '2017-11-18']
 placeholder_sbls = 'B10000'
@@ -24,7 +26,7 @@ event = {
         'week': placeholder_week,
         'date': placeholder_date,
         'container_key': placeholder_container,
-        'meal_key': placeholder_meal,
+        #'meal_key': placeholder_meal,
         'ls_date': placeholder_date_list,
         'keyword': 'Hühnerei',
         'key': placeholder_sbls,
@@ -38,14 +40,13 @@ event = {
         }
 }
 
-
 from mobileapi import *
 
 if __name__ == '__main__':
-    # pprint.pprint(hints(event, context=None))
+    pprint.pprint(hints(event, context=None))
     # pprint.pprint(scan_bls(event=event, context=None))
-    # for content in ['nutrients', "allergies", "intolerances", "input_range", "diseases", "daily_top", "home_slides"]:
-    #     pprint.pprint(get_kadia_content(event={'body-json': {'keyword': content}}, context=None))
+    for content in ['nutrients', "allergies", "intolerances", "input_range", "diseases", "daily_top", "home_slides"]:
+        pprint.pprint(get_kadia_content(event={'body-json': {'keyword': content}}, context=None))
     # pprint.pprint(container_categories(event=event, context=None))
     # pprint.pprint(blood_pressure_for_week(event=event, context=None))
     # pprint.pprint(grocery_url(event=event, context=None))
@@ -54,7 +55,7 @@ if __name__ == '__main__':
     # pprint.pprint(check_item(event=event, context=None))
     # pprint.pprint(shopping_list(event=event, context=None))
     # pprint.pprint(percentage(event=event, context=None))
-    pprint.pprint(meal_eaten(event=event, context=None))
+    # pprint.pprint(meal_eaten(event=event, context=None))
     # pprint.pprint(like_meal(event,context=None))
     # pprint.pprint(get_whole_item(event, None))
     # pprint.pprint(is_liked_or_disliked(event, None))

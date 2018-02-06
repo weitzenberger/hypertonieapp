@@ -120,14 +120,34 @@ class ModelManager(object):
             container_category = {
                 u'BF': [{u'preference': u'obligatory', u'key': u'BREAD'}, {u'preference': u'unwanted', u'key': u'EGGS'}], u'LU': [{u'preference': u'obligatory', u'key': u'FRUIT'}]}
 
-        container_category = {u'BF': [{u'preference': u'obligatory', u'key': u'BREAD'}, {u'preference': u'unwanted', u'key': u'EGGS'}], u'LU': [{u'preference': u'obligatory', u'key': u'FRUIT'}]}
+        container_category = {u'BF': [], u'LU': []}
 
         def get_meals(num, conditions, container_key):
             switch_cond = {
-                'BF': [],  # TODO: extra Conditions einfügen für container??
-                'DI': [],
-                'LU': [],
-                'SN': []
+                'BF': [mealdescription.c.WARM == None,
+                       mealdescription.c.SALAD == None
+                       ],
+                'LU': [mealdescription.c.BREAD_ROLL == None,
+                       mealdescription.c.SMOOTHIE == None,
+                       mealdescription.c.TOAST == None,
+                       mealdescription.c.EGGS == None,
+                       ],
+                'DI': [mealdescription.c.MUSLI == None,
+                       mealdescription.c.QUARK == None,
+                       mealdescription.c.YOGURT == None,
+                       mealdescription.c.FRUIT == None,
+                       mealdescription.c.BREAD == None,
+                       mealdescription.c.BREAD_ROLL == None,
+                       mealdescription.c.TOAST == None,
+                       mealdescription.c.JUICE == None,
+                       mealdescription.c.NUTS == None],
+                'SN': [mealdescription.c.BREAD_ROLL == None,
+                       mealdescription.c.BREAD == None,
+                       mealdescription.c.BREAD_ROLL == None,
+                       mealdescription.c.TOAST == None,
+                       mealdescription.c.SALAD == None,
+                       mealdescription.c.EGGS == None,
+                       mealdescription.c.WARM == None,]
             }
             conditions += switch_cond[container_key]
             s = select([mealdescription]).where(and_(*conditions)).order_by(func.rand()).limit(num)
@@ -145,6 +165,8 @@ class ModelManager(object):
             for element in container_content:
                 if element['preference'] == 'obligatory':
                     preference_condition = [mealdescription.c.__getattr__(element['key']) == True]
+                    print 'this is key'
+                    print element['key']
                     item = {
                         'preference': 'obligatory',
                         'meals': get_meals(
@@ -199,30 +221,35 @@ class ModelManager(object):
         ls_cond_hab = []
         cognito_handler = awsapi.Cognito()
         data_sets = cognito_handler.get_records_as_dict(dataset=c.DATASET_VITAL, cognito_id=self.cognitoId)
-        for element in data_sets['intolerances']:
-            try:
-                ls_cond_intol.append(mealdescription.c.__getattr__(element) == None)
-            except:
-                pass
-        for element in data_sets['allergies']:
-            try:
-                ls_cond_al.append(mealdescription.c.__getattr__(element) == None)
-            except:
-                pass
-        for element in data_sets['habits']:
-            try:
+        if data_sets.get('intolerances'):
+            for element in data_sets['intolerances']:
+                try:
+                    ls_cond_intol.append(mealdescription.c.__getattr__(element) == None)
+                except:
+                    pass
+            if not 'IN_LAKT' in data_sets['intolerances']:
+                ls_cond_intol.append(mealdescription.c.DE_LAKT == None)
+            if not 'IN_GLU' in data_sets['intolerances']:
+                ls_cond_intol.append(mealdescription.c.DE_GLU == None)
+        if data_sets.get('allergies'):
+            for element in data_sets['allergies']:
+                try:
+                    ls_cond_al.append(mealdescription.c.__getattr__(element) == None)
+                except:
+                    pass
+        if data_sets.get('habits'):
+            for element in data_sets['habits']:
+                if element == 'VEGAN':
+                    element = 'VEGGIE'
                 ls_cond_hab.append(mealdescription.c.__getattr__(element) == True)
-            except:
-                pass
 
-        if not 'IN_LAKT' in data_sets['intolerances']:
-            ls_cond_intol.append(mealdescription.c.DE_LAKT == None)
-        if not 'IN_GLU' in data_sets['intolerances']:
-            ls_cond_intol.append(mealdescription.c.DE_GLU == None)
+
+
+
 
         print data_sets
 
-        return [] #ls_cond_al + ls_cond_intol + ls_cond_hab
+        return ls_cond_al + ls_cond_intol + ls_cond_hab
 
 
 class RegenerateManager(ModelManager):
@@ -448,8 +475,8 @@ class RegenerateManager(ModelManager):
             self.userNutritionStore.delete_element(
                 unique_id=self.cognitoId,
                 date=self.event['body-json'][c.DATE],
-                container=self.event['body-json']['container_key'],
-                key=self.event['body-json']['meal_key']
+                container=self.event['body-json']['container_key']
+#                key=self.event['body-json']['meal_key']
             )
             self.userNutritionStore.update_container(
                 unique_id=self.cognitoId,
@@ -556,8 +583,8 @@ class GenerateManager(ModelManager):
 
         if pulp.LpStatus[self.problem.status] == 'Optimal':
             cognito_id = self.cognitoId
-            if sys.platform == 'darwin':
-                cognito_id = 'TEST_ID'
+            # if sys.platform == 'darwin':
+            #     cognito_id = 'TEST_ID'
             self.eval = Evaluator(
                 model=self.problem,
                 meals=self.modeller.all_meals,

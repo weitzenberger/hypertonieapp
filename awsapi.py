@@ -327,9 +327,6 @@ class DynamoUserData(object):
             is_disliked=is_disliked
         )
 
-
-
-
     def create_shopping_list(self, unique_id, ls_date):
         """
 
@@ -522,6 +519,8 @@ class DynamoUserData(object):
                 )
             )
 
+        detailed_date_pressure = detailed_date_pressure[::-1]
+
         measure_count = len(response['Items'])
         pressure_systolic_average = pressure_systolic_sum / measure_count
         pressure_diastolic_average = pressure_diastolic_sum / measure_count
@@ -583,6 +582,8 @@ class DynamoUserData(object):
                 )
             )
 
+        detailed_date_weight = detailed_date_weight[::-1]
+
         measure_count = len(response['Items'])
         weight_average = weight_sum / measure_count
 
@@ -613,9 +614,10 @@ class DynamoUserData(object):
         measure_evening = False
         for item in response['Items']:
             current_dt = form.get_date_time_by_iso(item['date'])
+            print current_dt.hour
             if current_dt.hour < MID_DAY and current_dt.hour > 3:
                 measure_morning = True
-            if current_dt.hour > MID_DAY:
+            if current_dt.hour >= MID_DAY:
                 measure_evening = True
 
         d = {}
@@ -657,7 +659,7 @@ class DynamoUserData(object):
             current_dt = form.get_date_time_by_iso(item['date'])
             if current_dt.hour < MID_DAY and current_dt.hour > 3:
                 measure_morning = True
-            if current_dt.hour > MID_DAY:
+            if current_dt.hour >= MID_DAY:
                 measure_evening = True
 
         d = {}
@@ -674,7 +676,7 @@ class DynamoUserData(object):
             d.update(dict(evening=measure_evening))
         else:
             if measure_evening:
-                d.update(dict(measure_evening))
+                d.update(dict(evening=measure_evening))
         return d
 
     def percentage_blood_pressure(self, unique_id, date):
@@ -748,9 +750,9 @@ class DynamoUserData(object):
         measurements = self.check_weight_measurements(unique_id=unique_id, date=today)
         percentage = 0
         if measurements.get('morning'):
-            percentage += 50
+            percentage = 100
         if measurements.get('evening'):
-            percentage += 50
+            percentage = 100
         return percentage
 
     def set_shopping_list(self, unique_id, shoppinglist):

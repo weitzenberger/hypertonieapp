@@ -491,6 +491,7 @@ class Evaluator(object):
                     if variable.varValue != 0:
                         current_key_element = self.meals[container_key][meal_key]
                         self.plan[day][container_key][meal_key]['ST'] = self.meals[container_key][meal_key]['NAME']
+                        self.plan[day][container_key][meal_key]['DES'] = self.meals[container_key][meal_key]['DES']
                         self.plan[day][container_key][meal_key]['varValue'] = variable.varValue
                         self.plan[day][container_key][meal_key]['ingredients'].update(self.get_meal_vals(meal_key))
                         self.meals_checked[day][container_key][meal_key] = False
@@ -502,7 +503,7 @@ class Evaluator(object):
                             self.shoppinglist[day][sbls_key].setdefault('ST', sbls_value['ST'])
                             self.shoppinglist[day][sbls_key].setdefault('UNIT', 'g')  # TODO: Unit aus STA table einfügen
                             self.shoppinglist[day][sbls_key]['VAL'] += sbls_value['AMOUNT']
-                            amount = sbls_value['AMOUNT']
+                            amount += sbls_value['AMOUNT']
                         self.plan[day][container_key][meal_key]['AMOUNT'] = amount
 
                         for n in params.nutrientList:
